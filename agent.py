@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 import logging
 
 from livekit import agents
-from livekit.agents import AgentSession, Agent, RoomInputOptions, metrics, MetricsCollectedEvent
-from livekit.plugins import noise_cancellation, silero
+from livekit.agents import AgentSession, Agent, RoomInputOptions, RoomOutputOptions, metrics, MetricsCollectedEvent
+from livekit.plugins import noise_cancellation, silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 load_dotenv(".env.local")
@@ -22,6 +22,7 @@ class Assistant(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
+    
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
@@ -44,18 +45,19 @@ async def entrypoint(ctx: agents.JobContext):
 
     ctx.add_shutdown_callback(log_usage)
 
+    avatar = hedra.AvatarSession(
+        avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",  
+    )
+
+    # Start the avatar and wait for it to join
+    await avatar.start(session, room=ctx.room)
+
     await session.start(
         room=ctx.room,
         agent=Assistant(),
-        room_input_options=RoomInputOptions(
-            # For telephony applications, use `BVCTelephony` instead for best results
-            noise_cancellation=noise_cancellation.BVC(), 
-        ),
     )
 
-    await session.generate_reply(
-        instructions="Greet the user and offer your assistance."
-    )
+    await session.say("It's working")
 
 
 if __name__ == "__main__":
