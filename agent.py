@@ -7,6 +7,8 @@ from livekit.agents import AgentSession, Agent, RoomInputOptions, RoomOutputOpti
 from livekit.plugins import noise_cancellation, silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from utils import load_prompt
+
 load_dotenv(".env.local")
 
 logger = logging.getLogger("agent")
@@ -14,10 +16,7 @@ logger = logging.getLogger("agent")
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="""You are a helpful voice AI assistant.
-            You eagerly assist users with their questions by providing information from your extensive knowledge.
-            Your responses are concise, to the point, and without any complex formatting or punctuation including emojis, asterisks, or other symbols.
-            You are curious, friendly, and have a sense of humor.""",
+            instructions=load_prompt('welcome_prompt.txt'),
         )
 
 
