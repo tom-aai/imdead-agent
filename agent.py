@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 
+import json
 import logging
 
 from livekit import agents
@@ -13,10 +14,12 @@ load_dotenv(".env.local")
 
 logger = logging.getLogger("agent")
 
+ctx_history_file = "ctx_history.json"
+
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions=load_prompt('welcome_prompt.txt'),
+            instructions=load_prompt('onboarding_prompt.txt'),
         )
 
 
@@ -43,7 +46,23 @@ async def entrypoint(ctx: agents.JobContext):
         summary = usage_collector.get_summary()
         logger.info(f"Usage: {summary}")
 
+    async def save_chat_history():
+        """Save the chat history to ctx_history_file when the call ends."""
+        try:
+            # Use the native to_dict method from ChatContext
+            chat_data = session.history.to_dict()
+            
+            # Save to file
+            with open(ctx_history_file, 'w', encoding='utf-8') as f:
+                json.dump(chat_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Chat history saved to {ctx_history_file}")
+            
+        except Exception as e:
+            logger.error(f"Error saving chat history: {e}")
+
     ctx.add_shutdown_callback(log_usage)
+    ctx.add_shutdown_callback(save_chat_history)
 
     avatar = hedra.AvatarSession(
         avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",  
@@ -57,7 +76,7 @@ async def entrypoint(ctx: agents.JobContext):
         agent=Assistant(),
     )
 
-    await session.say("It's working")
+    await session.generate_reply()
 
 
 if __name__ == "__main__":
