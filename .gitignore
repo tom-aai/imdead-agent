@@ -255,5 +255,9 @@ temp/
 *.sln
 *.sw?
 
-# ignore the LK agents repo
+# ignore the LK repos
 agents/
+python-agents-examples/
+
+# ignore chat history
+chat_history/

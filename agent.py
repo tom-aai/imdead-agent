@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 
 import json
 import logging
+import os
+from datetime import datetime
 
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions, RoomOutputOptions, metrics, MetricsCollectedEvent
@@ -14,7 +16,9 @@ load_dotenv(".env.local")
 
 logger = logging.getLogger("agent")
 
-ctx_history_file = "ctx_history.json"
+# Create chat history directory if it doesn't exist
+chat_history_dir = "chat_history"
+os.makedirs(chat_history_dir, exist_ok=True)
 
 class Assistant(Agent):
     def __init__(self) -> None:
@@ -24,7 +28,6 @@ class Assistant(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
-    
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
@@ -47,16 +50,16 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Usage: {summary}")
 
     async def save_chat_history():
-        """Save the chat history to ctx_history_file when the call ends."""
+        """Save the complete chat history when the session ends"""
         try:
-            # Use the native to_dict method from ChatContext
-            chat_data = session.history.to_dict()
+            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(chat_history_dir, f"chat_history_{ctx.room.name}_{current_time}.json")
             
-            # Save to file
-            with open(ctx_history_file, 'w', encoding='utf-8') as f:
-                json.dump(chat_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Chat history saved to {ctx_history_file}")
+            # Save the complete conversation history
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(session.history.to_dict(), f, indent=2, ensure_ascii=False)
+                
+            logger.info(f"Chat history for {ctx.room.name} saved to {filename}")
             
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
