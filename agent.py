@@ -28,42 +28,23 @@ class Assistant(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
-    logger.info("🚀 Agent starting up...")
-    logger.info(f"Connecting to room {ctx.room.name}")
+    logger.info("Agent starting up...")
     
     # Connect to the room
     await ctx.connect()
-    logger.info("✅ Connected to room, waiting for participants...")
     
     # Wait for the first participant to join (IVR pattern)
     participant = await ctx.wait_for_participant()
-    logger.info(f"👤 Participant joined: {participant.identity}")
-    
-    # Log all participant info for debugging
-    logger.info(f"🔍 Participant info - Identity: {participant.identity}")
-    logger.info(f"🔍 Participant info - Name: {participant.name}")
-    logger.info(f"🔍 Participant info - Metadata: {participant.metadata}")
+    logger.info(f"Participant joined: {participant.identity}")
     
     # Get pictureId from participant metadata (set during token generation)
-    # Metadata is a JSON string that we need to parse
     picture_id = None
     if participant.metadata:
         try:
             metadata = json.loads(participant.metadata)
             picture_id = metadata.get("pictureId")
-            logger.info(f"📦 Parsed metadata: {metadata}")
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse participant metadata: {e}")
-            logger.error(f"Raw metadata: {participant.metadata}")
-    
-    if picture_id:
-        logger.info(f"🖼️  Picture ID from participant metadata: {picture_id}")
-        print(f"\n{'='*60}")
-        print(f"✅ PICTURE ID RECEIVED: {picture_id}")
-        print(f"{'='*60}\n")
-    else:
-        logger.warning(f"⚠️  No pictureId found in participant metadata for {participant.identity}")
-        logger.info(f"Raw metadata: {participant.metadata}")
     
     # Create the agent session for this participant
     session = AgentSession(
@@ -121,15 +102,12 @@ async def entrypoint(ctx: agents.JobContext):
     ctx.add_shutdown_callback(save_chat_history)
 
     # Start avatar
-    logger.info("🎭 Starting avatar...")
     avatar = hedra.AvatarSession(
         avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",  
     )
     await avatar.start(session, room=ctx.room)
-    logger.info("✅ Avatar started")
 
     # Start the session - this blocks and keeps the agent alive
-    logger.info("🤖 Starting agent session...")
     await session.start(
         room=ctx.room,
         agent=Assistant(),
