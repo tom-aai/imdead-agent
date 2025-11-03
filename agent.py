@@ -37,12 +37,28 @@ async def entrypoint(ctx: agents.JobContext):
     participant = await ctx.wait_for_participant()
     logger.info(f"Participant joined: {participant.identity}")
     
-    # Get pictureId from participant metadata (set during token generation)
+    # Get user info and pictureId from participant metadata (set during token generation)
     picture_id = None
+    user_info = {}
+    
     if participant.metadata:
         try:
             metadata = json.loads(participant.metadata)
             picture_id = metadata.get("pictureId")
+            user_info = metadata.get("user", {})
+            
+            # Log user information
+            logger.info("=" * 50)
+            logger.info("👤 USER CONNECTED TO AGENT")
+            logger.info("=" * 50)
+            logger.info(f"User ID: {user_info.get('userId', 'N/A')}")
+            logger.info(f"Name: {user_info.get('name', 'N/A')}")
+            logger.info(f"First Name: {user_info.get('firstName', 'N/A')}")
+            logger.info(f"Last Name: {user_info.get('lastName', 'N/A')}")
+            logger.info(f"Email: {user_info.get('email', 'N/A')}")
+            logger.info(f"Picture ID: {picture_id or 'N/A'}")
+            logger.info("=" * 50)
+            
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse participant metadata: {e}")
     
@@ -73,8 +89,11 @@ async def entrypoint(ctx: agents.JobContext):
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Include picture_id in filename if available
-            if picture_id:
+            # Include user_id in filename if available, otherwise picture_id
+            user_id = user_info.get('userId', '')
+            if user_id:
+                filename = os.path.join(chat_history_dir, f"chat_history_{user_id}_{current_time}.json")
+            elif picture_id:
                 filename = os.path.join(chat_history_dir, f"chat_history_{picture_id}_{current_time}.json")
             else:
                 filename = os.path.join(chat_history_dir, f"chat_history_{ctx.room.name}_{current_time}.json")
@@ -82,10 +101,11 @@ async def entrypoint(ctx: agents.JobContext):
             # Save the complete conversation history with metadata
             history_data = session.history.to_dict()
             
-            # Add session metadata including picture_id
+            # Add session metadata including user info and picture_id
             session_metadata = {
                 "room_name": ctx.room.name,
                 "picture_id": picture_id,
+                "user": user_info,
                 "timestamp": current_time,
                 "conversation": history_data
             }
@@ -93,7 +113,9 @@ async def entrypoint(ctx: agents.JobContext):
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(session_metadata, f, indent=2, ensure_ascii=False)
                 
-            logger.info(f"Chat history for {ctx.room.name} (picture_id: {picture_id}) saved to {filename}")
+            logger.info(f"Chat history saved to {filename}")
+            logger.info(f"  User: {user_info.get('name', 'N/A')} ({user_info.get('email', 'N/A')})")
+            logger.info(f"  Picture ID: {picture_id or 'N/A'}")
             
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
