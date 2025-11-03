@@ -44,8 +44,12 @@ async def entrypoint(ctx: agents.JobContext):
     if participant.metadata:
         try:
             metadata = json.loads(participant.metadata)
-            picture_id = metadata.get("pictureId")
+            raw_picture_id = metadata.get("pictureId")
             user_info = metadata.get("user", {})
+            
+            # Append .png to picture_id for the actual file reference
+            if raw_picture_id:
+                picture_id = f"{raw_picture_id}.png"
             
             # Log user information
             logger.info("=" * 50)
