@@ -93,6 +93,9 @@ async def entrypoint(ctx: agents.JobContext):
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             
+            # Get room session ID (coroutine property that needs to be awaited)
+            room_sid = await ctx.room.sid
+            
             # Include user_id in filename if available, otherwise picture_id
             user_id = user_info.get('userId', '')
             if user_id:
@@ -105,12 +108,36 @@ async def entrypoint(ctx: agents.JobContext):
             # Save the complete conversation history with metadata
             history_data = session.history.to_dict()
             
-            # Add session metadata including user info and picture_id
+            # Get usage summary
+            usage_summary = usage_collector.get_summary()
+            usage_data = {
+                "llm_prompt_tokens": usage_summary.llm_prompt_tokens,
+                "llm_prompt_cached_tokens": usage_summary.llm_prompt_cached_tokens,
+                "llm_completion_tokens": usage_summary.llm_completion_tokens,
+                "tts_characters_count": usage_summary.tts_characters_count,
+                "tts_audio_duration": usage_summary.tts_audio_duration,
+                "stt_audio_duration": usage_summary.stt_audio_duration,
+            }
+            
+            # Add session metadata including user info, picture_id, and LiveKit session info
             session_metadata = {
-                "room_name": ctx.room.name,
+                # LiveKit session identifiers
+                "session_id": room_sid,  # Unique LiveKit session/room SID
+                "job_id": ctx.job.id,
+                
+                # User-specific metadata
                 "picture_id": picture_id,
-                "user": user_info,
+                "user_id":user_info.get('userId', ''),
+                "user_firstName":user_info.get('firstName', ''),
+                "user_lastName":user_info.get('lastName', ''),
+                
+                # Timestamps
                 "timestamp": current_time,
+                
+                # Usage metrics
+                "usage": usage_data,
+                
+                # Conversation data
                 "conversation": history_data
             }
             
@@ -118,6 +145,9 @@ async def entrypoint(ctx: agents.JobContext):
                 json.dump(session_metadata, f, indent=2, ensure_ascii=False)
                 
             logger.info(f"Chat history saved to {filename}")
+            logger.info(f"  Session ID: {room_sid}")
+            logger.info(f"  Room Name: {ctx.room.name}")
+            logger.info(f"  Job ID: {ctx.job.id}")
             logger.info(f"  User: {user_info.get('name', 'N/A')} ({user_info.get('email', 'N/A')})")
             logger.info(f"  Picture ID: {picture_id or 'N/A'}")
             
