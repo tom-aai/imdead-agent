@@ -9,6 +9,7 @@ from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
 from livekit.plugins import silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from supabase import create_client, Client
 
 from utils import load_prompt
 
@@ -19,6 +20,17 @@ logger = logging.getLogger("agent")
 # Create chat history directory if it doesn't exist
 chat_history_dir = "chat_history"
 os.makedirs(chat_history_dir, exist_ok=True)
+
+# Initialize Supabase client
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    logger.info("✅ Supabase client initialized")
+else:
+    logger.warning("⚠️ Supabase credentials not found - will only save to local files")
 
 class Assistant(Agent):
     def __init__(self) -> None:
@@ -126,10 +138,10 @@ async def entrypoint(ctx: agents.JobContext):
                 "job_id": ctx.job.id,
                 
                 # User-specific metadata
-                "picture_id": picture_id,
-                "user_id":user_info.get('userId', ''),
-                "user_firstName":user_info.get('firstName', ''),
-                "user_lastName":user_info.get('lastName', ''),
+                "picture_id": picture_id or '',
+                "user_id": user_info.get('userId') or '',
+                "user_firstname": user_info.get('firstName') or '',
+                "user_lastname": user_info.get('lastName') or '',
                 
                 # Timestamps
                 "timestamp": current_time,
@@ -141,18 +153,50 @@ async def entrypoint(ctx: agents.JobContext):
                 "conversation": history_data
             }
             
+            # 1. Save to local JSON file (backup)
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(session_metadata, f, indent=2, ensure_ascii=False)
-                
-            logger.info(f"Chat history saved to {filename}")
-            logger.info(f"  Session ID: {room_sid}")
-            logger.info(f"  Room Name: {ctx.room.name}")
-            logger.info(f"  Job ID: {ctx.job.id}")
-            logger.info(f"  User: {user_info.get('name', 'N/A')} ({user_info.get('email', 'N/A')})")
-            logger.info(f"  Picture ID: {picture_id or 'N/A'}")
+            logger.info(f"📁 Chat history saved to {filename}")
+            
+            # 2. Save to Supabase database
+            if supabase and user_id:
+                try:
+                    # Prepare data for Supabase (matches your table schema)
+                    supabase_data = {
+                        "session_id": room_sid,
+                        "job_id": ctx.job.id,
+                        "picture_id": picture_id or '',
+                        "user_id": user_id,
+                        "user_firstname": user_info.get('firstName') or '',
+                        "user_lastname": user_info.get('lastName') or '',
+                        "timestamp": current_time,
+                        "usage": usage_data,
+                        "conversation": history_data
+                    }
+                    
+                    # Insert into Supabase
+                    response = supabase.table("calls").insert(supabase_data).execute()
+                    
+                    logger.info("=" * 50)
+                    logger.info("✅ DATA SAVED TO SUPABASE")
+                    logger.info("=" * 50)
+                    logger.info(f"  Session ID: {room_sid}")
+                    logger.info(f"  Job ID: {ctx.job.id}")
+                    logger.info(f"  User: {user_info.get('name', 'N/A')} ({user_info.get('email', 'N/A')})")
+                    logger.info(f"  Picture ID: {picture_id or 'N/A'}")
+                    logger.info(f"  Conversation items: {len(history_data.get('items', []))}")
+                    logger.info(f"  LLM tokens: {usage_summary.llm_prompt_tokens} + {usage_summary.llm_completion_tokens}")
+                    logger.info(f"  Audio duration: TTS={usage_summary.tts_audio_duration:.1f}s, STT={usage_summary.stt_audio_duration:.1f}s")
+                    logger.info("=" * 50)
+                    
+                except Exception as supabase_error:
+                    logger.error(f"❌ Error saving to Supabase: {supabase_error}")
+                    logger.info("💾 Data is still saved in local JSON file as backup")
+            elif not user_id:
+                logger.warning("⚠️ No user_id available - skipping Supabase upload")
             
         except Exception as e:
-            logger.error(f"Error saving chat history: {e}")
+            logger.error(f"❌ Error in save_chat_history: {e}")
 
     ctx.add_shutdown_callback(log_usage)
     ctx.add_shutdown_callback(save_chat_history)

@@ -6,4 +6,5 @@ dependencies = [
     "livekit-agents[hedra,images,silero,turn-detector]~=1.2",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv>=1.1.1",
+    "supabase>=2.23.2",
 ]
