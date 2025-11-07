@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 
+import aiohttp
 import json
 import logging
 import os
@@ -7,7 +8,7 @@ from datetime import datetime
 
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
-from livekit.plugins import silero, hedra
+from livekit.plugins import silero, hedra, google
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from supabase import create_client, Client
 
@@ -24,6 +25,7 @@ os.makedirs(chat_history_dir, exist_ok=True)
 # Initialize Supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5001")
 
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
@@ -82,11 +84,12 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
-        tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
+        #tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
     )
+
 
     # Metrics collection, to measure pipeline performance
     usage_collector = metrics.UsageCollector()
@@ -189,6 +192,22 @@ async def entrypoint(ctx: agents.JobContext):
                     logger.info(f"  Audio duration: TTS={usage_summary.tts_audio_duration:.1f}s, STT={usage_summary.stt_audio_duration:.1f}s")
                     logger.info("=" * 50)
                     
+                    # Trigger backend post-processing
+                    try:
+                        async with aiohttp.ClientSession() as http_session:
+                            async with http_session.post(
+                                f"{BACKEND_URL}/process-transcript",
+                                json={"session_id": room_sid},
+                                timeout=aiohttp.ClientTimeout(total=10)
+                            ) as response:
+                                if response.status == 200:
+                                    logger.info(f"✅ Backend notified successfully for session {room_sid}")
+                                else:
+                                    logger.warning(f"⚠️ Backend returned status {response.status}")
+                    except Exception as backend_error:
+                        logger.error(f"❌ Error notifying backend: {backend_error}")
+                        logger.info("💾 Transcript is still saved in Supabase for later processing")
+                    
                 except Exception as supabase_error:
                     logger.error(f"❌ Error saving to Supabase: {supabase_error}")
                     logger.info("💾 Data is still saved in local JSON file as backup")
@@ -203,8 +222,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Start avatar
     avatar = hedra.AvatarSession(
-        #avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",   
-        avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", 
+        avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",   
+        #avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", 
     )
     await avatar.start(session, room=ctx.room)
 
