@@ -84,8 +84,8 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
-        #tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
+        tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
     )
@@ -178,7 +178,7 @@ async def entrypoint(ctx: agents.JobContext):
                     }
                     
                     # Insert into Supabase
-                    response = supabase.table("calls").insert(supabase_data).execute()
+                    response = supabase.table("interview_calls").insert(supabase_data).execute()
                     
                     logger.info("=" * 50)
                     logger.info("✅ DATA SAVED TO SUPABASE")
@@ -222,8 +222,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Start avatar
     avatar = hedra.AvatarSession(
-        avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",   
-        #avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", 
+        #avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",   
+        avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", 
     )
     await avatar.start(session, room=ctx.room)
 
