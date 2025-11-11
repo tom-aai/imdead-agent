@@ -192,21 +192,23 @@ async def entrypoint(ctx: agents.JobContext):
                     logger.info(f"  Audio duration: TTS={usage_summary.tts_audio_duration:.1f}s, STT={usage_summary.stt_audio_duration:.1f}s")
                     logger.info("=" * 50)
                     
-                    # Trigger backend post-processing
+                    # Trigger post-call orchestrator (fire and forget)
                     try:
                         async with aiohttp.ClientSession() as http_session:
+                            # Just trigger the orchestrator - don't wait for it to complete
+                            # The orchestrator runs independently in the backend
                             async with http_session.post(
-                                f"{BACKEND_URL}/process-transcript",
+                                f"{BACKEND_URL}/post-call-orchestrator",
                                 json={"session_id": room_sid},
-                                timeout=aiohttp.ClientTimeout(total=10)
+                                timeout=aiohttp.ClientTimeout(total=5)  # Short timeout just to confirm connection
                             ) as response:
                                 if response.status == 200:
-                                    logger.info(f"✅ Backend notified successfully for session {room_sid}")
+                                    logger.info(f"✅ Post-call orchestrator triggered for session {room_sid}")
                                 else:
-                                    logger.warning(f"⚠️ Backend returned status {response.status}")
+                                    logger.warning(f"⚠️ Post-call orchestrator returned status {response.status}")
                     except Exception as backend_error:
-                        logger.error(f"❌ Error notifying backend: {backend_error}")
-                        logger.info("💾 Transcript is still saved in Supabase for later processing")
+                        logger.warning(f"⚠️ Could not trigger post-call orchestrator: {backend_error}")
+                        logger.info("💾 Transcript is saved in Supabase and can be processed manually if needed")
                     
                 except Exception as supabase_error:
                     logger.error(f"❌ Error saving to Supabase: {supabase_error}")
