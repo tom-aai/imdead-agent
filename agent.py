@@ -180,6 +180,18 @@ async def entrypoint(ctx: agents.JobContext):
                     # Insert into Supabase
                     response = supabase.table("interview_calls").insert(supabase_data).execute()
                     
+                    # Also save to user_avatar_images table if we have picture_id
+                    if picture_id:
+                        try:
+                            avatar_image_data = {
+                                "user_id": user_id,
+                                "picture_id": picture_id
+                            }
+                            supabase.table("user_avatar_images").insert(avatar_image_data).execute()
+                            logger.info(f"✅ Avatar image reference saved for user {user_id}: {picture_id}")
+                        except Exception as avatar_error:
+                            logger.warning(f"⚠️ Could not save avatar image reference: {avatar_error}")
+                    
                     logger.info("=" * 50)
                     logger.info("✅ DATA SAVED TO SUPABASE")
                     logger.info("=" * 50)
