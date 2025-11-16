@@ -185,7 +185,8 @@ async def entrypoint(ctx: agents.JobContext):
                         try:
                             avatar_image_data = {
                                 "user_id": user_id,
-                                "picture_id": picture_id
+                                "picture_id": picture_id,
+                                "picture_source": "from_interview_session"
                             }
                             supabase.table("user_avatar_images").insert(avatar_image_data).execute()
                             logger.info(f"✅ Avatar image reference saved for user {user_id}: {picture_id}")
