@@ -20,6 +20,9 @@ load_dotenv(".env.local")
 
 logger = logging.getLogger("agent")
 
+# Suppress noisy hpack (HTTP/2) debug logs
+logging.getLogger("hpack").setLevel(logging.WARNING)
+
 # Create chat history directory if it doesn't exist
 chat_history_dir = "chat_history"
 os.makedirs(chat_history_dir, exist_ok=True)
@@ -207,10 +210,10 @@ async def entrypoint(ctx: agents.JobContext):
     
     # Select the appropriate agent based on user status
     if is_returning_user:
-        logger.info(f"🔄 Returning user detected - using InterviewAgent")
+        logger.info(f"Returning user detected - using InterviewAgent")
         initial_agent = InterviewAgent()
     else:
-        logger.info(f"✨ New user detected - using OnboardingAgent")
+        logger.info(f"New user detected - using OnboardingAgent")
         initial_agent = OnboardingAgent()
     
     # Create the agent session for this participant
@@ -219,7 +222,7 @@ async def entrypoint(ctx: agents.JobContext):
         userdata=user_profile,
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
-        tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        tts="inworld/inworld-tts-1:Olivia", #Olivia on tts-1-max is good. Sarah, Ronald, Edward
         #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
