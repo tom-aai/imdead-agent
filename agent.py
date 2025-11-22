@@ -4,7 +4,9 @@ import aiohttp
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
@@ -34,11 +36,125 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
 else:
     logger.warning("⚠️ Supabase credentials not found - will only save to local files")
 
-class Assistant(Agent):
+@dataclass
+class UserProfileData:
+    """Store user profile data for personalized prompts."""
+    myers_briggs_code: Optional[str] = None
+    personality: Optional[str] = None
+    expertise_description: Optional[str] = None
+
+class OnboardingAgent(Agent):
+    """Agent for new users going through onboarding."""
     def __init__(self) -> None:
         super().__init__(
             instructions=load_prompt('onboarding_prompt.txt'),
         )
+
+class InterviewAgent(Agent):
+    """Agent for returning users going through interviews."""
+    def __init__(self) -> None:
+        super().__init__(
+            instructions="",  # Will be set dynamically in on_enter()
+        )
+    
+    async def on_enter(self) -> None:
+        """Called when the agent is first activated. Injects user-specific context."""
+        logger.info("InterviewAgent activated - loading personalized instructions")
+        
+        # Get user profile data from session userdata
+        user_profile = getattr(self.session, 'userdata', None)
+        
+        # Load base prompt
+        base_prompt = load_prompt('interview_prompt.txt')
+        
+        # Build user context section
+        user_context = ""
+        if user_profile and isinstance(user_profile, UserProfileData):
+            context_parts = []
+            
+            if user_profile.myers_briggs_code:
+                context_parts.append(f"**Myers-Briggs Type:** {user_profile.myers_briggs_code}")
+            
+            if user_profile.personality:
+                context_parts.append(f"**Personality Profile:** {user_profile.personality}")
+            
+            if user_profile.expertise_description:
+                context_parts.append(f"**Area of Expertise:** {user_profile.expertise_description}")
+            
+            if context_parts:
+                user_context = "\n".join(context_parts)
+                logger.info(f"✅ Loaded user profile data for personalized prompt")
+            else:
+                user_context = "No user profile data available yet - this may be their first interview after onboarding."
+                logger.warning("⚠️ User profile exists but has no data")
+        else:
+            user_context = "No user profile data available yet - this may be their first interview after onboarding."
+            logger.warning("⚠️ No user profile data found in session")
+        
+        # Inject user context into the prompt
+        personalized_prompt = base_prompt.replace(
+            "[INJECT USER CONTEXT AND EXPERTISE HERE]",
+            user_context
+        )
+        
+        # Update the agent's instructions
+        await self.update_instructions(personalized_prompt)
+
+
+async def check_if_returning_user(user_id: str) -> bool:
+    """
+    Check if a user has completed onboarding by looking for previous interview calls.
+    Returns True if user has at least one completed interview call in the database.
+    """
+    if not supabase or not user_id:
+        logger.warning("Cannot check returning user status - no Supabase client or user_id")
+        return False
+    
+    try:
+        # Query for any previous interview calls for this user
+        response = supabase.table("interview_calls").select("session_id").eq("user_id", user_id).limit(1).execute()
+        
+        has_previous_calls = len(response.data) > 0
+        logger.info(f"User {user_id} returning status: {has_previous_calls}")
+        return has_previous_calls
+    except Exception as e:
+        logger.error(f"Error checking returning user status: {e}")
+        return False
+
+
+async def fetch_user_profile(user_id: str) -> Optional[UserProfileData]:
+    """
+    Fetch user profile data from Supabase for personalized prompts.
+    Returns UserProfileData with myers_briggs_code, personality, and expertise_description.
+    """
+    if not supabase or not user_id:
+        logger.warning("Cannot fetch user profile - no Supabase client or user_id")
+        return None
+    
+    try:
+        # Query user_profiles table for this user
+        response = supabase.table("user_profiles").select(
+            "myers_briggs_code, personality, expertise_description"
+        ).eq("user_id", user_id).limit(1).execute()
+        
+        if response.data and len(response.data) > 0:
+            profile_data = response.data[0]
+            user_profile = UserProfileData(
+                myers_briggs_code=profile_data.get("myers_briggs_code"),
+                personality=profile_data.get("personality"),
+                expertise_description=profile_data.get("expertise_description")
+            )
+            logger.info(f"✅ Fetched user profile for user {user_id}")
+            logger.info(f"   Myers-Briggs: {user_profile.myers_briggs_code or 'None'}")
+            logger.info(f"   Personality: {user_profile.personality[:50] if user_profile.personality else 'None'}...")
+            logger.info(f"   Expertise: {user_profile.expertise_description[:50] if user_profile.expertise_description else 'None'}...")
+            return user_profile
+        else:
+            logger.info(f"No user profile found for user {user_id}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching user profile: {e}")
+        return None
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -80,8 +196,27 @@ async def entrypoint(ctx: agents.JobContext):
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse participant metadata: {e}")
     
+    # Check if user is returning to determine which agent to use
+    user_id = user_info.get('userId', '')
+    is_returning_user = await check_if_returning_user(user_id)
+    
+    # Fetch user profile data for personalized prompts (for returning users)
+    user_profile = None
+    if is_returning_user:
+        user_profile = await fetch_user_profile(user_id)
+    
+    # Select the appropriate agent based on user status
+    if is_returning_user:
+        logger.info(f"🔄 Returning user detected - using InterviewAgent")
+        initial_agent = InterviewAgent()
+    else:
+        logger.info(f"✨ New user detected - using OnboardingAgent")
+        initial_agent = OnboardingAgent()
+    
     # Create the agent session for this participant
+    # Pass user_profile as userdata for InterviewAgent to access
     session = AgentSession(
+        userdata=user_profile,
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
         tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
@@ -242,10 +377,10 @@ async def entrypoint(ctx: agents.JobContext):
     )
     await avatar.start(session, room=ctx.room)
 
-    # Start the session - this blocks and keeps the agent alive
+    # Start the session with the selected agent - this blocks and keeps the agent alive
     await session.start(
         room=ctx.room,
-        agent=Assistant(),
+        agent=initial_agent,
     )
 
     await session.generate_reply(
