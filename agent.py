@@ -216,26 +216,8 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"New user detected - using OnboardingAgent")
         initial_agent = OnboardingAgent()
     
-    # Create the agent session for this participant
-    # Pass user_profile as userdata for InterviewAgent to access
-    session = AgentSession(
-        userdata=user_profile,
-        stt="assemblyai/universal-streaming:en",
-        llm="openai/gpt-4.1-mini",
-        tts="inworld/inworld-tts-1:Olivia", #Olivia on tts-1-max is good. Sarah, Ronald, Edward
-        #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
-        vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
-    )
-
-
     # Metrics collection, to measure pipeline performance
     usage_collector = metrics.UsageCollector()
-
-    @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
 
     async def log_usage():
         summary = usage_collector.get_summary()
@@ -373,10 +355,28 @@ async def entrypoint(ctx: agents.JobContext):
     ctx.add_shutdown_callback(log_usage)
     ctx.add_shutdown_callback(save_chat_history)
 
+    # Create the agent session for this participant
+    # Pass user_profile as userdata for InterviewAgent to access
+    session = AgentSession(
+        userdata=user_profile,
+        stt="assemblyai/universal-streaming:en",
+        llm="openai/gpt-4.1-mini",
+        #tts="inworld/inworld-tts-1:Olivia", # Olivia or Ashley voice for Ashley Ronald, Edward,Étienne
+        tts="inworld/inworld-tts-1-max:Edward", #Olivia on tts-1-max is good. Ronald, Edward,Étienne
+        #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
+        vad=silero.VAD.load(),
+        turn_detection=MultilingualModel(),
+    )
+
+    @session.on("metrics_collected")
+    def _on_metrics_collected(ev: MetricsCollectedEvent):
+        metrics.log_metrics(ev.metrics)
+        usage_collector.collect(ev.metrics)
+
     # Start avatar
     avatar = hedra.AvatarSession(
-        #avatar_id="eb423485-fa83-4a52-92ed-e6afffb87e20",   
-        avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", 
+        avatar_id="f9ee171e-c671-439a-95d3-a0bc1e320c27", #phil   
+        #avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", #ashley
     )
     await avatar.start(session, room=ctx.room)
 
