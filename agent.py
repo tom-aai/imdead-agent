@@ -10,11 +10,12 @@ from typing import Optional
 
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
-from livekit.plugins import silero, hedra, google
+from livekit.plugins import silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from supabase import create_client, Client
 
 from utils import load_prompt
+from services.gender_detection import GenderDetector
 
 load_dotenv(".env.local")
 
@@ -198,7 +199,7 @@ async def entrypoint(ctx: agents.JobContext):
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse participant metadata: {e}")
-    
+        
     # Check if user is returning to determine which agent to use
     user_id = user_info.get('userId', '')
     is_returning_user = await check_if_returning_user(user_id)
@@ -207,6 +208,23 @@ async def entrypoint(ctx: agents.JobContext):
     user_profile = None
     if is_returning_user:
         user_profile = await fetch_user_profile(user_id)
+    
+    # Detect gender from first name to select appropriate avatar and voice
+    first_name = user_info.get('firstName', '')
+    gender_detector = GenderDetector()
+    detected_gender = gender_detector.detect_gender(first_name)
+    
+    # Select avatar and voice based on gender
+    # If male -> use Ashley (female avatar/voice)
+    # If female -> use Phil (male avatar/voice)
+    if detected_gender == "male":
+        avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
+        tts_voice = "inworld/inworld-tts-1:Olivia"  # Ashley's voice
+        logger.info(f"Male name detected - using Ashley avatar and Olivia voice")
+    else:  # female
+        avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
+        tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
+        logger.info(f"Female name detected - using Phil avatar and male voice")
     
     # Select the appropriate agent based on user status
     if is_returning_user:
@@ -361,9 +379,7 @@ async def entrypoint(ctx: agents.JobContext):
         userdata=user_profile,
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
-        #tts="inworld/inworld-tts-1:Olivia", # Olivia or Ashley voice for Ashley Ronald, Edward,Étienne
-        tts="inworld/inworld-tts-1-max:Edward", #Olivia on tts-1-max is good. Ronald, Edward,Étienne
-        #tts="cartesia/sonic-2:7392e429-4eb4-4abb-b40b-da9fdecbc5ce", # me
+        tts=tts_voice,  # Dynamically selected based on user's gender
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
     )
@@ -375,8 +391,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Start avatar
     avatar = hedra.AvatarSession(
-        avatar_id="f9ee171e-c671-439a-95d3-a0bc1e320c27", #phil   
-        #avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727", #ashley
+        avatar_id=avatar_id,  # Dynamically selected based on user's gender
     )
     await avatar.start(session, room=ctx.room)
 
