@@ -1,12 +1,8 @@
 from dotenv import load_dotenv
 
-import aiohttp
 import json
 import logging
 import os
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional
 
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
@@ -16,6 +12,7 @@ from supabase import create_client, Client
 
 from utils import load_prompt
 from services.gender_detection import GenderDetector
+from services.user_data import UserDataService, UserProfileData
 
 load_dotenv(".env.local")
 
@@ -40,12 +37,11 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
 else:
     logger.warning("⚠️ Supabase credentials not found - will only save to local files")
 
-@dataclass
-class UserProfileData:
-    """Store user profile data for personalized prompts."""
-    myers_briggs_code: Optional[str] = None
-    personality: Optional[str] = None
-    expertise_description: Optional[str] = None
+# Initialize user data service
+user_service = UserDataService(supabase)
+
+# Initialize gender detector (reuses Anthropic client across calls)
+gender_detector = GenderDetector()
 
 class OnboardingAgent(Agent):
     """Agent for new users going through onboarding."""
@@ -105,62 +101,6 @@ class InterviewAgent(Agent):
         await self.update_instructions(personalized_prompt)
 
 
-async def check_if_returning_user(user_id: str) -> bool:
-    """
-    Check if a user has completed onboarding by looking for previous interview calls.
-    Returns True if user has at least one completed interview call in the database.
-    """
-    if not supabase or not user_id:
-        logger.warning("Cannot check returning user status - no Supabase client or user_id")
-        return False
-    
-    try:
-        # Query for any previous interview calls for this user
-        response = supabase.table("interview_calls").select("session_id").eq("user_id", user_id).limit(1).execute()
-        
-        has_previous_calls = len(response.data) > 0
-        logger.info(f"User {user_id} returning status: {has_previous_calls}")
-        return has_previous_calls
-    except Exception as e:
-        logger.error(f"Error checking returning user status: {e}")
-        return False
-
-
-async def fetch_user_profile(user_id: str) -> Optional[UserProfileData]:
-    """
-    Fetch user profile data from Supabase for personalized prompts.
-    Returns UserProfileData with myers_briggs_code, personality, and expertise_description.
-    """
-    if not supabase or not user_id:
-        logger.warning("Cannot fetch user profile - no Supabase client or user_id")
-        return None
-    
-    try:
-        # Query user_profiles table for this user
-        response = supabase.table("user_profiles").select(
-            "myers_briggs_code, personality, expertise_description"
-        ).eq("user_id", user_id).limit(1).execute()
-        
-        if response.data and len(response.data) > 0:
-            profile_data = response.data[0]
-            user_profile = UserProfileData(
-                myers_briggs_code=profile_data.get("myers_briggs_code"),
-                personality=profile_data.get("personality"),
-                expertise_description=profile_data.get("expertise_description")
-            )
-            logger.info(f"✅ Fetched user profile for user {user_id}")
-            logger.info(f"   Myers-Briggs: {user_profile.myers_briggs_code or 'None'}")
-            logger.info(f"   Personality: {user_profile.personality[:50] if user_profile.personality else 'None'}...")
-            logger.info(f"   Expertise: {user_profile.expertise_description[:50] if user_profile.expertise_description else 'None'}...")
-            return user_profile
-        else:
-            logger.info(f"No user profile found for user {user_id}")
-            return None
-    except Exception as e:
-        logger.error(f"Error fetching user profile: {e}")
-        return None
-
-
 async def entrypoint(ctx: agents.JobContext):
     logger.info("Agent starting up...")
     
@@ -202,16 +142,15 @@ async def entrypoint(ctx: agents.JobContext):
         
     # Check if user is returning to determine which agent to use
     user_id = user_info.get('userId', '')
-    is_returning_user = await check_if_returning_user(user_id)
+    is_returning_user = await user_service.check_if_returning_user(user_id)
     
     # Fetch user profile data for personalized prompts (for returning users)
     user_profile = None
     if is_returning_user:
-        user_profile = await fetch_user_profile(user_id)
+        user_profile = await user_service.fetch_user_profile(user_id)
     
     # Detect gender from first name to select appropriate avatar and voice
     first_name = user_info.get('firstName', '')
-    gender_detector = GenderDetector()
     detected_gender = gender_detector.detect_gender(first_name)
     
     # Select avatar and voice based on gender
@@ -242,136 +181,37 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Usage: {summary}")
 
     async def save_chat_history():
-        """Save the complete chat history when the session ends"""
-        try:
-            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            # Get room session ID (coroutine property that needs to be awaited)
-            room_sid = await ctx.room.sid
-            
-            # Include user_id in filename if available, otherwise picture_id
-            user_id = user_info.get('userId', '')
-            if user_id:
-                filename = os.path.join(chat_history_dir, f"chat_history_{user_id}_{current_time}.json")
-            elif picture_id:
-                filename = os.path.join(chat_history_dir, f"chat_history_{picture_id}_{current_time}.json")
-            else:
-                filename = os.path.join(chat_history_dir, f"chat_history_{ctx.room.name}_{current_time}.json")
-            
-            # Save the complete conversation history with metadata
-            history_data = session.history.to_dict()
-            
-            # Get usage summary
-            usage_summary = usage_collector.get_summary()
-            usage_data = {
-                "llm_prompt_tokens": usage_summary.llm_prompt_tokens,
-                "llm_prompt_cached_tokens": usage_summary.llm_prompt_cached_tokens,
-                "llm_completion_tokens": usage_summary.llm_completion_tokens,
-                "tts_characters_count": usage_summary.tts_characters_count,
-                "tts_audio_duration": usage_summary.tts_audio_duration,
-                "stt_audio_duration": usage_summary.stt_audio_duration,
-            }
-            
-            # Add session metadata including user info, picture_id, and LiveKit session info
-            session_metadata = {
-                # LiveKit session identifiers
-                "session_id": room_sid,  # Unique LiveKit session/room SID
-                "job_id": ctx.job.id,
-                
-                # User-specific metadata
-                "picture_id": picture_id or '',
-                "user_id": user_info.get('userId') or '',
-                "user_firstname": user_info.get('firstName') or '',
-                "user_lastname": user_info.get('lastName') or '',
-                
-                # Timestamps
-                "timestamp": current_time,
-                
-                # Usage metrics
-                "usage": usage_data,
-                
-                # Conversation data
-                "conversation": history_data
-            }
-            
-            # 1. Save to local JSON file (backup)
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(session_metadata, f, indent=2, ensure_ascii=False)
-            logger.info(f"📁 Chat history saved to {filename}")
-            
-            # 2. Save to Supabase database
-            if supabase and user_id:
-                try:
-                    # Prepare data for Supabase (matches your table schema)
-                    supabase_data = {
-                        "session_id": room_sid,
-                        "job_id": ctx.job.id,
-                        "picture_id": picture_id or '',
-                        "user_id": user_id,
-                        "user_firstname": user_info.get('firstName') or '',
-                        "user_lastname": user_info.get('lastName') or '',
-                        "timestamp": current_time,
-                        "usage": usage_data,
-                        "conversation": history_data
-                    }
-                    
-                    # Insert into Supabase
-                    response = supabase.table("interview_calls").insert(supabase_data).execute()
-                    
-                    # Also save to user_avatar_images table if we have picture_id
-                    if picture_id:
-                        try:
-                            avatar_image_data = {
-                                "user_id": user_id,
-                                "picture_id": picture_id,
-                                "picture_source": "from_interview_session"
-                            }
-                            supabase.table("user_avatar_images").insert(avatar_image_data).execute()
-                            logger.info(f"✅ Avatar image reference saved for user {user_id}: {picture_id}")
-                        except Exception as avatar_error:
-                            logger.warning(f"⚠️ Could not save avatar image reference: {avatar_error}")
-                    
-                    logger.info("=" * 50)
-                    logger.info("✅ DATA SAVED TO SUPABASE")
-                    logger.info("=" * 50)
-                    logger.info(f"  Session ID: {room_sid}")
-                    logger.info(f"  Job ID: {ctx.job.id}")
-                    logger.info(f"  User: {user_info.get('name', 'N/A')} ({user_info.get('email', 'N/A')})")
-                    logger.info(f"  Picture ID: {picture_id or 'N/A'}")
-                    logger.info(f"  Conversation items: {len(history_data.get('items', []))}")
-                    logger.info(f"  LLM tokens: {usage_summary.llm_prompt_tokens} + {usage_summary.llm_completion_tokens}")
-                    logger.info(f"  Audio duration: TTS={usage_summary.tts_audio_duration:.1f}s, STT={usage_summary.stt_audio_duration:.1f}s")
-                    logger.info("=" * 50)
-                    
-                    # Trigger post-call orchestrator (fire and forget)
-                    try:
-                        async with aiohttp.ClientSession() as http_session:
-                            # Just trigger the orchestrator - don't wait for it to complete
-                            # The orchestrator runs independently in the backend
-                            async with http_session.post(
-                                f"{BACKEND_URL}/post-call-orchestrator",
-                                json={"session_id": room_sid},
-                                timeout=aiohttp.ClientTimeout(total=5)  # Short timeout just to confirm connection
-                            ) as response:
-                                if response.status == 200:
-                                    logger.info(f"✅ Post-call orchestrator triggered for session {room_sid}")
-                                else:
-                                    logger.warning(f"⚠️ Post-call orchestrator returned status {response.status}")
-                    except Exception as backend_error:
-                        logger.warning(f"⚠️ Could not trigger post-call orchestrator: {backend_error}")
-                        logger.info("💾 Transcript is saved in Supabase and can be processed manually if needed")
-                    
-                except Exception as supabase_error:
-                    logger.error(f"❌ Error saving to Supabase: {supabase_error}")
-                    logger.info("💾 Data is still saved in local JSON file as backup")
-            elif not user_id:
-                logger.warning("⚠️ No user_id available - skipping Supabase upload")
-            
-        except Exception as e:
-            logger.error(f"❌ Error in save_chat_history: {e}")
-
-    ctx.add_shutdown_callback(log_usage)
-    ctx.add_shutdown_callback(save_chat_history)
+        """Wrapper to save chat history when the session ends"""
+        # Get room session ID (coroutine property that needs to be awaited)
+        room_sid = await ctx.room.sid
+        
+        # Save the complete conversation history with metadata
+        history_data = session.history.to_dict()
+        
+        # Get usage summary
+        usage_summary = usage_collector.get_summary()
+        usage_data = {
+            "llm_prompt_tokens": usage_summary.llm_prompt_tokens,
+            "llm_prompt_cached_tokens": usage_summary.llm_prompt_cached_tokens,
+            "llm_completion_tokens": usage_summary.llm_completion_tokens,
+            "tts_characters_count": usage_summary.tts_characters_count,
+            "tts_audio_duration": usage_summary.tts_audio_duration,
+            "stt_audio_duration": usage_summary.stt_audio_duration,
+        }
+        
+        # Delegate to service
+        await user_service.save_chat_history(
+            session_id=room_sid,
+            job_id=ctx.job.id,
+            room_name=ctx.room.name,
+            user_info=user_info,
+            picture_id=picture_id,
+            conversation_data=history_data,
+            usage_data=usage_data,
+            usage_summary=usage_summary,
+            chat_history_dir=chat_history_dir,
+            backend_url=BACKEND_URL
+        )
 
     # Create the agent session for this participant
     # Pass user_profile as userdata for InterviewAgent to access
@@ -388,6 +228,10 @@ async def entrypoint(ctx: agents.JobContext):
     def _on_metrics_collected(ev: MetricsCollectedEvent):
         metrics.log_metrics(ev.metrics)
         usage_collector.collect(ev.metrics)
+
+    # Register shutdown callbacks after session is created
+    ctx.add_shutdown_callback(log_usage)
+    ctx.add_shutdown_callback(save_chat_history)
 
     # Start avatar
     avatar = hedra.AvatarSession(
