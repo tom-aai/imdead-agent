@@ -256,18 +256,13 @@ async def entrypoint(ctx: agents.JobContext):
         agent=initial_agent,
     )
     
-    # RECORDING DISABLED - Supabase S3 API not working with LiveKit egress
-    # TODO: Set up AWS S3, Cloudflare R2, or another S3-compatible storage
-    # Then re-enable recording by uncommenting below:
-    
-    # egress_id = await egress_service.start_room_recording(
-    #     room_name=ctx.room.name,
-    #     user_id=user_id,
-    #     audio_only=True,
-    #     audio_mixing=api.AudioMixing.DUAL_CHANNEL_AGENT,
-    # )
-    
-    egress_id = None  # Recording disabled
+    egress_id = await egress_service.start_room_recording(
+        room_name=ctx.room.name,
+        user_id=user_id,
+        audio_only=True,
+        audio_mixing=api.AudioMixing.DUAL_CHANNEL_AGENT,
+    )
+
     
     # ALTERNATIVE OPTIONS:
     # - api.AudioMixing.DEFAULT_MIXING: All audio mixed together (single channel)

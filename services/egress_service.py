@@ -21,10 +21,14 @@ class EgressService:
         self.livekit_api_key = os.getenv("LIVEKIT_API_KEY")
         self.livekit_api_secret = os.getenv("LIVEKIT_API_SECRET")
         
-        # Get Supabase storage credentials
+        # Get Supabase storage S3 credentials
+        # Note: These are separate from your Supabase API credentials
+        # Generate them in: Supabase Dashboard -> Project Settings -> Storage -> S3 Access Keys
         self.supabase_url = os.getenv("SUPABASE_URL")
-        self.supabase_service_key = os.getenv("SUPABASE_SERVICE_KEY")
         self.supabase_project_id = self._extract_project_id(self.supabase_url)
+        self.s3_access_key_id = os.getenv("SUPABASE_S3_ACCESS_KEY_ID")
+        self.s3_secret_access_key = os.getenv("SUPABASE_S3_SECRET_ACCESS_KEY")
+        self.s3_region = os.getenv("SUPABASE_S3_REGION", "auto")
         
         self.logger = logging.getLogger(__name__)
         
@@ -84,15 +88,19 @@ class EgressService:
             self.logger.warning("Cannot start recording - LiveKit API not initialized")
             return None
         
-        if not self.supabase_url or not self.supabase_service_key:
-            self.logger.warning("Cannot start recording - Supabase credentials not found")
+        if not self.supabase_url or not self.s3_access_key_id or not self.s3_secret_access_key:
+            self.logger.warning("Cannot start recording - Supabase S3 credentials not found")
+            self.logger.warning("Please set SUPABASE_S3_ACCESS_KEY_ID and SUPABASE_S3_SECRET_ACCESS_KEY")
             return None
         
         try:
             # Construct the S3-compatible endpoint for Supabase storage
-            # Supabase storage is S3-compatible
-            storage_endpoint = f"{self.supabase_url}/storage/v1/s3"
-            
+            # Format: https://<project-id>.storage.supabase.co/storage/v1/s3
+            if not self.supabase_project_id:
+                self.logger.error("Cannot construct storage endpoint - project ID not found")
+                return None
+            storage_endpoint = f"https://{self.supabase_project_id}.storage.supabase.co/storage/v1/s3"
+
             # Determine file extension based on audio_only setting
             file_extension = "ogg" if audio_only else "mp4"
             
@@ -102,9 +110,9 @@ class EgressService:
             # Log S3 configuration (without sensitive data)
             self.logger.info(f"   S3 Endpoint: {storage_endpoint}")
             self.logger.info(f"   S3 Bucket: interview-recordings")
-            self.logger.info(f"   S3 Region: {self.supabase_project_id or 'auto'}")
-            self.logger.info(f"   S3 Access Key: {self.supabase_project_id or '(empty)'}...")
-            self.logger.info(f"   S3 Secret: {'*' * 10 if self.supabase_service_key else '(empty)'}...")
+            self.logger.info(f"   S3 Region: {self.s3_region}")
+            self.logger.info(f"   S3 Access Key ID: {self.s3_access_key_id[:8] if self.s3_access_key_id else '(empty)'}...")
+            self.logger.info(f"   S3 Secret Access Key: {'*' * 10 if self.s3_secret_access_key else '(empty)'}...")
             self.logger.info(f"   Force Path Style: True")
             
             # Create the egress request for room composite
@@ -118,12 +126,12 @@ class EgressService:
                     api.EncodedFileOutput(
                         filepath=filename,
                         s3=api.S3Upload(
-                            # Supabase storage S3-compatible configuration
+                            # Supabase Storage S3-compatible configuration
                             endpoint=storage_endpoint,
                             bucket="interview-recordings",
-                            region=self.supabase_project_id or "auto",
-                            access_key=self.supabase_project_id or "",
-                            secret=self.supabase_service_key,
+                            region=self.s3_region,
+                            access_key=self.s3_access_key_id,
+                            secret=self.s3_secret_access_key,
                             force_path_style=True,
                         ),
                     )
