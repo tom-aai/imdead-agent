@@ -4,7 +4,7 @@ import json
 import logging
 import os
 
-from livekit import agents, rtc
+from livekit import agents, rtc, api
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
 from livekit.plugins import silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -13,6 +13,7 @@ from supabase import create_client, Client
 from utils import load_prompt
 from services.gender_detection import GenderDetector
 from services.user_data import UserDataService, UserProfileData
+from services.egress_service import EgressService
 
 load_dotenv(".env.local")
 
@@ -42,6 +43,9 @@ user_service = UserDataService(supabase)
 
 # Initialize gender detector (reuses Anthropic client across calls)
 gender_detector = GenderDetector()
+
+# Initialize egress service for recording
+egress_service = EgressService()
 
 class OnboardingAgent(Agent):
     """Agent for new users going through onboarding."""
@@ -111,6 +115,9 @@ async def entrypoint(ctx: agents.JobContext):
     participant = await ctx.wait_for_participant()
     logger.info(f"Participant joined: {participant.identity}")
     
+    # Track egress ID for status checking
+    egress_id = None
+    
     # Get user info and pictureId from participant metadata (set during token generation)
     picture_id = None
     user_info = {}
@@ -158,8 +165,8 @@ async def entrypoint(ctx: agents.JobContext):
     # If female -> use Phil (male avatar/voice)
     if detected_gender == "male":
         avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
-        tts_voice = "inworld/inworld-tts-1:Olivia"  # Ashley's voice
-        logger.info(f"Male name detected - using Ashley avatar and Olivia voice")
+        tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
+        logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
         tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
@@ -212,6 +219,10 @@ async def entrypoint(ctx: agents.JobContext):
             chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL
         )
+        
+        # Close the egress API client and check final status
+        # Note: Egress recording automatically stops when the room ends
+        await egress_service.close(egress_id=egress_id)
 
     # Create the agent session for this participant
     # Pass user_profile as userdata for InterviewAgent to access
@@ -244,6 +255,24 @@ async def entrypoint(ctx: agents.JobContext):
         room=ctx.room,
         agent=initial_agent,
     )
+    
+    # RECORDING DISABLED - Supabase S3 API not working with LiveKit egress
+    # TODO: Set up AWS S3, Cloudflare R2, or another S3-compatible storage
+    # Then re-enable recording by uncommenting below:
+    
+    # egress_id = await egress_service.start_room_recording(
+    #     room_name=ctx.room.name,
+    #     user_id=user_id,
+    #     audio_only=True,
+    #     audio_mixing=api.AudioMixing.DUAL_CHANNEL_AGENT,
+    # )
+    
+    egress_id = None  # Recording disabled
+    
+    # ALTERNATIVE OPTIONS:
+    # - api.AudioMixing.DEFAULT_MIXING: All audio mixed together (single channel)
+    # - api.AudioMixing.DUAL_CHANNEL_ALTERNATE: Each track alternates L/R channels
+    # - None: Default mixing (all audio mixed together)
 
     await session.generate_reply(
         instructions="Greet the user and tell them about the agenda for the call."
