@@ -13,7 +13,6 @@ from supabase import create_client, Client
 from utils import load_prompt
 from services.gender_detection import GenderDetector
 from services.user_data import UserDataService, UserProfileData
-from services.egress_service import EgressService
 
 load_dotenv(".env.local")
 
@@ -44,8 +43,70 @@ user_service = UserDataService(supabase)
 # Initialize gender detector (reuses Anthropic client across calls)
 gender_detector = GenderDetector()
 
-# Initialize egress service for recording
-egress_service = EgressService()
+async def start_room_recording(room_name: str, user_id: str, participant_identity: str) -> None:
+    """
+    Start recording ONLY the user's audio to Supabase storage.
+    Uses ParticipantEgress to record just the user participant.
+    Recording automatically stops when the participant leaves.
+    """
+    # Get Supabase storage credentials
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_project_id = supabase_url.split("//")[1].split(".")[0] if supabase_url else None
+    s3_access_key_id = os.getenv("SUPABASE_S3_ACCESS_KEY_ID")
+    s3_secret_access_key = os.getenv("SUPABASE_S3_SECRET_ACCESS_KEY")
+    s3_region = os.getenv("SUPABASE_S3_REGION", "auto")
+    
+    if not all([supabase_project_id, s3_access_key_id, s3_secret_access_key]):
+        logger.warning("⚠️ Supabase S3 credentials not found - skipping recording")
+        return
+    
+    # Construct the S3-compatible endpoint for Supabase storage
+    storage_endpoint = f"https://{supabase_project_id}.storage.supabase.co/storage/v1/s3"
+    filename = f"interviews/{user_id}/{room_name}.mp4"
+    
+    try:
+        # Create the egress request for participant recording (user only)
+        # ParticipantEgress waits for the participant to join and records their audio
+        req = api.ParticipantEgressRequest(
+            room_name=room_name,
+            identity=participant_identity,  # Only record this participant (the user)
+            screen_share=False,  # Don't record screen share
+            file_outputs=[
+                api.EncodedFileOutput(
+                    filepath=filename,
+                    s3=api.S3Upload(
+                        endpoint=storage_endpoint,
+                        bucket="interview-recordings",
+                        region=s3_region,
+                        access_key=s3_access_key_id,
+                        secret=s3_secret_access_key,
+                        force_path_style=True,
+                    ),
+                )
+            ],
+        )
+        
+        logger.info("=" * 50)
+        logger.info("🎙️ STARTING USER AUDIO RECORDING")
+        logger.info("=" * 50)
+        logger.info(f"  Room: {room_name}")
+        logger.info(f"  Participant: {participant_identity}")
+        logger.info(f"  User ID: {user_id}")
+        logger.info(f"  Recording: User audio only (no agent)")
+        logger.info(f"  Destination: interview-recordings/{filename}")
+        logger.info("=" * 50)
+        
+        # Start the egress
+        lkapi = api.LiveKitAPI()
+        response = await lkapi.egress.start_participant_egress(req)
+        await lkapi.aclose()
+        
+        logger.info(f"✅ Recording started - Egress ID: {response.egress_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error starting participant recording: {e}")
+        logger.exception("Full traceback:")
+
 
 class OnboardingAgent(Agent):
     """Agent for new users going through onboarding."""
@@ -114,9 +175,6 @@ async def entrypoint(ctx: agents.JobContext):
     # Wait for the first participant to join (IVR pattern)
     participant = await ctx.wait_for_participant()
     logger.info(f"Participant joined: {participant.identity}")
-    
-    # Track egress ID for status checking
-    egress_id = None
     
     # Get user info and pictureId from participant metadata (set during token generation)
     picture_id = None
@@ -219,10 +277,6 @@ async def entrypoint(ctx: agents.JobContext):
             chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL
         )
-        
-        # Close the egress API client and check final status
-        # Note: Egress recording automatically stops when the room ends
-        await egress_service.close(egress_id=egress_id)
 
     # Create the agent session for this participant
     # Pass user_profile as userdata for InterviewAgent to access
@@ -244,6 +298,10 @@ async def entrypoint(ctx: agents.JobContext):
     ctx.add_shutdown_callback(log_usage)
     ctx.add_shutdown_callback(save_chat_history)
 
+    # Start recording user's audio to Supabase storage
+    # This records ONLY the user's audio (not the agent) and automatically stops when they leave
+    await start_room_recording(ctx.room.name, user_id, participant.identity)
+
     # Start avatar
     avatar = hedra.AvatarSession(
         avatar_id=avatar_id,  # Dynamically selected based on user's gender
@@ -255,19 +313,6 @@ async def entrypoint(ctx: agents.JobContext):
         room=ctx.room,
         agent=initial_agent,
     )
-    
-    egress_id = await egress_service.start_room_recording(
-        room_name=ctx.room.name,
-        user_id=user_id,
-        audio_only=True,
-        audio_mixing=api.AudioMixing.DUAL_CHANNEL_AGENT,
-    )
-
-    
-    # ALTERNATIVE OPTIONS:
-    # - api.AudioMixing.DEFAULT_MIXING: All audio mixed together (single channel)
-    # - api.AudioMixing.DUAL_CHANNEL_ALTERNATE: Each track alternates L/R channels
-    # - None: Default mixing (all audio mixed together)
 
     await session.generate_reply(
         instructions="Greet the user and tell them about the agenda for the call."

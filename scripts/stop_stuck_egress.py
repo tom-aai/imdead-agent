@@ -5,9 +5,10 @@ Usage: uv run stop_stuck_egress.py EG_24jU9bpZanhD
 """
 
 import asyncio
+import os
 import sys
 from dotenv import load_dotenv
-from services.egress_service import EgressService
+from livekit import api
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -20,15 +21,15 @@ async def main():
     egress_id = sys.argv[1]
     print(f"Stopping egress: {egress_id}")
     
-    egress_service = EgressService()
-    success = await egress_service.stop_recording(egress_id)
-    
-    if success:
+    try:
+        lkapi = api.LiveKitAPI()
+        request = api.StopEgressRequest(egress_id=egress_id)
+        await lkapi.egress.stop_egress(request)
+        await lkapi.aclose()
         print(f"✅ Successfully stopped egress {egress_id}")
-    else:
-        print(f"❌ Failed to stop egress {egress_id}")
-    
-    await egress_service.close()
+    except Exception as e:
+        print(f"❌ Failed to stop egress {egress_id}: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
