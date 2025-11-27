@@ -111,7 +111,8 @@ class UserDataService:
         user_lastname: str,
         timestamp: str,
         usage_data: dict,
-        conversation_data: dict
+        conversation_data: dict,
+        recording_id: Optional[str] = None
     ) -> bool:
         """
         Save interview call data to Supabase.
@@ -126,6 +127,7 @@ class UserDataService:
             timestamp: Timestamp string
             usage_data: Usage metrics dictionary
             conversation_data: Conversation history dictionary
+            recording_id: UUID of the recording file (optional)
             
         Returns:
             bool: True if save was successful, False otherwise
@@ -145,7 +147,8 @@ class UserDataService:
                 "user_lastname": user_lastname or '',
                 "timestamp": timestamp,
                 "usage": usage_data,
-                "conversation": conversation_data
+                "conversation": conversation_data,
+                "recording_id": recording_id
             }
             
             # Insert into Supabase
@@ -158,6 +161,7 @@ class UserDataService:
             self.logger.info(f"  Job ID: {job_id}")
             self.logger.info(f"  User: {user_firstname} {user_lastname} ({user_id})")
             self.logger.info(f"  Picture ID: {picture_id or 'N/A'}")
+            self.logger.info(f"  Recording ID: {recording_id or 'N/A'}")
             self.logger.info(f"  Conversation items: {len(conversation_data.get('items', []))}")
             self.logger.info("=" * 50)
             
@@ -210,7 +214,8 @@ class UserDataService:
         usage_data: dict,
         usage_summary: Any,
         chat_history_dir: str,
-        backend_url: str
+        backend_url: str,
+        recording_id: Optional[str] = None
     ) -> None:
         """
         Save complete chat history to local JSON file and Supabase.
@@ -226,6 +231,7 @@ class UserDataService:
             usage_summary: Usage summary object with metrics
             chat_history_dir: Directory to save local JSON files
             backend_url: Backend URL for post-call orchestrator
+            recording_id: UUID of the recording file (optional)
         """
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -250,6 +256,9 @@ class UserDataService:
                 "user_id": user_id,
                 "user_firstname": user_info.get('firstName') or '',
                 "user_lastname": user_info.get('lastName') or '',
+                
+                # Recording metadata
+                "recording_id": recording_id,
                 
                 # Timestamps
                 "timestamp": current_time,
@@ -277,7 +286,8 @@ class UserDataService:
                     user_lastname=user_info.get('lastName') or '',
                     timestamp=current_time,
                     usage_data=usage_data,
-                    conversation_data=conversation_data
+                    conversation_data=conversation_data,
+                    recording_id=recording_id
                 )
                 
                 if save_success:

@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import json
 import logging
 import os
+import uuid
+from typing import Optional
 
 from livekit import agents, rtc, api
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
@@ -43,12 +45,18 @@ user_service = UserDataService(supabase)
 # Initialize gender detector (reuses Anthropic client across calls)
 gender_detector = GenderDetector()
 
-async def start_room_recording(room_name: str, user_id: str, participant_identity: str) -> None:
+async def start_room_recording(room_name: str, user_id: str, participant_identity: str) -> Optional[str]:
     """
     Start recording ONLY the user's audio to Supabase storage.
     Uses ParticipantEgress to record just the user participant.
     Recording automatically stops when the participant leaves.
+    
+    Returns:
+        Optional[str]: The recording UUID if recording started successfully, None otherwise
     """
+    # Generate a unique UUID for this recording
+    recording_id = str(uuid.uuid4())
+    
     # Get Supabase storage credentials
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_project_id = supabase_url.split("//")[1].split(".")[0] if supabase_url else None
@@ -58,11 +66,12 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
     
     if not all([supabase_project_id, s3_access_key_id, s3_secret_access_key]):
         logger.warning("⚠️ Supabase S3 credentials not found - skipping recording")
-        return
+        return None
     
     # Construct the S3-compatible endpoint for Supabase storage
     storage_endpoint = f"https://{supabase_project_id}.storage.supabase.co/storage/v1/s3"
-    filename = f"interviews/{user_id}/{room_name}.mp4"
+    # Use recording_id in the filename for easy tracking
+    filename = f"interviews/{user_id}/{recording_id}.mp4"
     
     try:
         # Create the egress request for participant recording (user only)
@@ -89,6 +98,7 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
         logger.info("=" * 50)
         logger.info("🎙️ STARTING USER AUDIO RECORDING")
         logger.info("=" * 50)
+        logger.info(f"  Recording ID: {recording_id}")
         logger.info(f"  Room: {room_name}")
         logger.info(f"  Participant: {participant_identity}")
         logger.info(f"  User ID: {user_id}")
@@ -102,10 +112,12 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
         await lkapi.aclose()
         
         logger.info(f"✅ Recording started - Egress ID: {response.egress_id}")
+        return recording_id
         
     except Exception as e:
         logger.error(f"❌ Error starting participant recording: {e}")
         logger.exception("Full traceback:")
+        return None
 
 
 class OnboardingAgent(Agent):
@@ -275,7 +287,8 @@ async def entrypoint(ctx: agents.JobContext):
             usage_data=usage_data,
             usage_summary=usage_summary,
             chat_history_dir=chat_history_dir,
-            backend_url=BACKEND_URL
+            backend_url=BACKEND_URL,
+            recording_id=recording_id
         )
 
     # Create the agent session for this participant
@@ -300,7 +313,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Start recording user's audio to Supabase storage
     # This records ONLY the user's audio (not the agent) and automatically stops when they leave
-    await start_room_recording(ctx.room.name, user_id, participant.identity)
+    recording_id = await start_room_recording(ctx.room.name, user_id, participant.identity)
 
     # Start avatar
     avatar = hedra.AvatarSession(
