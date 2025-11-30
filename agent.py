@@ -7,7 +7,8 @@ import uuid
 from typing import Optional
 
 from livekit import agents, rtc, api
-from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent
+from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent, RunContext
+from livekit.agents.llm import function_tool
 from livekit.plugins import silero, hedra
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from supabase import create_client, Client
@@ -126,6 +127,14 @@ class OnboardingAgent(Agent):
         super().__init__(
             instructions=load_prompt('onboarding_prompt.txt'),
         )
+    
+    async def on_enter(self) -> None:
+        """Called when the agent is first activated."""
+        logger.info("OnboardingAgent activated")
+        # Generate initial greeting
+        await self.session.generate_reply(
+            instructions="Greet the user and explain the onboarding process."
+        )
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
@@ -176,6 +185,37 @@ class InterviewAgent(Agent):
         
         # Update the agent's instructions
         await self.update_instructions(personalized_prompt)
+
+        # initial greeting.
+        await self.session.generate_reply(
+            instructions="Greet the user and tell them the agenda for the call."
+        )
+
+    
+    @function_tool
+    async def transfer_to_onboarding(self, context: RunContext):
+        """Transfer the user to the onboarding agent. Use this tool when the user explicitly 
+        requests to go through the onboarding process again, when they want to update their 
+        profile information that was gathered during onboarding, or when they want to record their voice for a new voice clone. 
+        
+        Examples of when to use this tool:
+        - User: "I want to redo the onboarding process"
+        - User: "Can I update my profile information?"
+        - User: "Let me go through onboarding again"
+        - User: "Can I create a new clone of my voice?"
+        
+        Always confirm with the user before transferring them, making sure to mention that previous onboarding data is not deleted but only additional data is added.
+        """
+        logger.info("🔄 Transfer to onboarding agent requested")
+        
+        # Inform the user about the transfer
+        await self.session.say("Ok, let's go through the onboarding process again. Hold on a few moments while I find my script.")
+        
+        # Switch to the onboarding agent
+        self.session.update_agent(OnboardingAgent())
+        
+        # No generation required after the transfer - the new agent will handle it
+        return None
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -326,13 +366,10 @@ async def entrypoint(ctx: agents.JobContext):
     await avatar.start(session, room=ctx.room)
 
     # Start the session with the selected agent - this blocks and keeps the agent alive
+    # The agent's on_enter() method will handle the initial greeting
     await session.start(
         room=ctx.room,
         agent=initial_agent,
-    )
-
-    await session.generate_reply(
-        instructions="Greet the user and tell them about the agenda for the call."
     )        
 
 if __name__ == "__main__":
