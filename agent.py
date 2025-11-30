@@ -70,8 +70,8 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
     
     # Construct the S3-compatible endpoint for Supabase storage
     storage_endpoint = f"https://{supabase_project_id}.storage.supabase.co/storage/v1/s3"
-    # Use recording_id in the filename for easy tracking
-    filename = f"interviews/{user_id}/{recording_id}.mp4"
+    # Use recording_id as the filename
+    filename = f"{recording_id}.mp4"
     
     try:
         # Create the egress request for participant recording (user only)
