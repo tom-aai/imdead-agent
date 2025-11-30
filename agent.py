@@ -233,22 +233,25 @@ async def entrypoint(ctx: agents.JobContext):
     # Select avatar and voice based on gender
     # If male -> use Ashley (female avatar/voice)
     # If female -> use Phil (male avatar/voice)
-    if detected_gender == "male":
+    if detected_gender == "female":
         avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
-        tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
+        #tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
+        tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         logger.info(f"Female name detected - using Phil avatar and male voice")
     
     # Select the appropriate agent based on user status
     if is_returning_user:
         logger.info(f"Returning user detected - using InterviewAgent")
         initial_agent = InterviewAgent()
+        call_type = "interview"
     else:
         logger.info(f"New user detected - using OnboardingAgent")
         initial_agent = OnboardingAgent()
+        call_type = "onboarding"
     
     # Metrics collection, to measure pipeline performance
     usage_collector = metrics.UsageCollector()
@@ -288,7 +291,8 @@ async def entrypoint(ctx: agents.JobContext):
             usage_summary=usage_summary,
             chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL,
-            recording_id=recording_id
+            recording_id=recording_id,
+            call_type=call_type
         )
 
     # Create the agent session for this participant

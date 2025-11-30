@@ -112,7 +112,8 @@ class UserDataService:
         timestamp: str,
         usage_data: dict,
         conversation_data: dict,
-        recording_id: Optional[str] = None
+        recording_id: Optional[str] = None,
+        call_type: str = "interview"
     ) -> bool:
         """
         Save interview call data to Supabase.
@@ -128,6 +129,7 @@ class UserDataService:
             usage_data: Usage metrics dictionary
             conversation_data: Conversation history dictionary
             recording_id: UUID of the recording file (optional)
+            call_type: Type of call - 'onboarding' or 'interview' (default: 'interview')
             
         Returns:
             bool: True if save was successful, False otherwise
@@ -148,7 +150,8 @@ class UserDataService:
                 "timestamp": timestamp,
                 "usage": usage_data,
                 "conversation": conversation_data,
-                "recording_id": recording_id
+                "recording_id": recording_id,
+                "call_type": call_type
             }
             
             # Insert into Supabase
@@ -162,6 +165,7 @@ class UserDataService:
             self.logger.info(f"  User: {user_firstname} {user_lastname} ({user_id})")
             self.logger.info(f"  Picture ID: {picture_id or 'N/A'}")
             self.logger.info(f"  Recording ID: {recording_id or 'N/A'}")
+            self.logger.info(f"  Call Type: {call_type}")
             self.logger.info(f"  Conversation items: {len(conversation_data.get('items', []))}")
             self.logger.info("=" * 50)
             
@@ -215,7 +219,8 @@ class UserDataService:
         usage_summary: Any,
         chat_history_dir: str,
         backend_url: str,
-        recording_id: Optional[str] = None
+        recording_id: Optional[str] = None,
+        call_type: str = "interview"
     ) -> None:
         """
         Save complete chat history to local JSON file and Supabase.
@@ -232,6 +237,7 @@ class UserDataService:
             chat_history_dir: Directory to save local JSON files
             backend_url: Backend URL for post-call orchestrator
             recording_id: UUID of the recording file (optional)
+            call_type: Type of call - 'onboarding' or 'interview' (default: 'interview')
         """
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -260,6 +266,9 @@ class UserDataService:
                 # Recording metadata
                 "recording_id": recording_id,
                 
+                # Call type
+                "call_type": call_type,
+                
                 # Timestamps
                 "timestamp": current_time,
                 
@@ -287,7 +296,8 @@ class UserDataService:
                     timestamp=current_time,
                     usage_data=usage_data,
                     conversation_data=conversation_data,
-                    recording_id=recording_id
+                    recording_id=recording_id,
+                    call_type=call_type
                 )
                 
                 if save_success:
