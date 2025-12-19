@@ -318,10 +318,10 @@ class UserDataService:
                                 json={"session_id": session_id},
                                 timeout=aiohttp.ClientTimeout(total=5)
                             ) as response:
-                            if response.status in (200, 202):
-                                self.logger.info(f"✅ Post-call orchestrator triggered for session {session_id}")
-                            else:
-                                self.logger.warning(f"⚠️ Post-call orchestrator returned status {response.status}")
+                                if response.status in (200, 202):
+                                    self.logger.info(f"✅ Post-call orchestrator triggered for session {session_id}")
+                                else:
+                                    self.logger.warning(f"⚠️ Post-call orchestrator returned status {response.status}")
                     except Exception as backend_error:
                         self.logger.warning(f"⚠️ Could not trigger post-call orchestrator: {backend_error}")
                         self.logger.info("💾 Transcript is saved in Supabase and can be processed manually if needed")
