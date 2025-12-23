@@ -32,6 +32,7 @@ os.makedirs(chat_history_dir, exist_ok=True)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5001")
+BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
@@ -71,8 +72,7 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
     
     # Construct the S3-compatible endpoint for Supabase storage
     storage_endpoint = f"https://{supabase_project_id}.storage.supabase.co/storage/v1/s3"
-    # Use recording_id as the filename
-    filename = f"{recording_id}.mp4"
+    filename = f"{user_id}/{recording_id}.mp4"
     
     try:
         # Create the egress request for participant recording (user only)
@@ -104,7 +104,7 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
         logger.info(f"  Participant: {participant_identity}")
         logger.info(f"  User ID: {user_id}")
         logger.info(f"  Recording: User audio only (no agent)")
-        logger.info(f"  Destination: interview-recordings/{filename}")
+        logger.info(f"  Destination: interview-recordings/{user_id}/{recording_id}.mp4")
         logger.info("=" * 50)
         
         # Start the egress
@@ -279,8 +279,9 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
-        #tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
-        tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
+        #avatar_id = "20488bb4-51fa-45aa-9c0a-154db37a4322"  # Me
+        tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
+        #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         logger.info(f"Female name detected - using Phil avatar and male voice")
     
     # Select the appropriate agent based on user status
@@ -332,7 +333,8 @@ async def entrypoint(ctx: agents.JobContext):
             chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL,
             recording_id=recording_id,
-            call_type=call_type
+            call_type=call_type,
+            backend_api_key=BACKEND_API_KEY
         )
 
     # Create the agent session for this participant
@@ -362,6 +364,8 @@ async def entrypoint(ctx: agents.JobContext):
     # Start avatar
     avatar = hedra.AvatarSession(
         avatar_id=avatar_id,  # Dynamically selected based on user's gender
+#        aspect_ratio="9:16",
+#        resolution="720p"
     )
     await avatar.start(session, room=ctx.room)
 

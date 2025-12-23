@@ -220,7 +220,8 @@ class UserDataService:
         chat_history_dir: str,
         backend_url: str,
         recording_id: Optional[str] = None,
-        call_type: str = "interview"
+        call_type: str = "interview",
+        backend_api_key: Optional[str] = None
     ) -> None:
         """
         Save complete chat history to local JSON file and Supabase.
@@ -238,6 +239,7 @@ class UserDataService:
             backend_url: Backend URL for post-call orchestrator
             recording_id: UUID of the recording file (optional)
             call_type: Type of call - 'onboarding' or 'interview' (default: 'interview')
+            backend_api_key: API key for authenticating with the backend (optional)
         """
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -311,11 +313,16 @@ class UserDataService:
                     
                     # Trigger post-call orchestrator (fire and forget)
                     try:
+                        headers = {}
+                        if backend_api_key:
+                            headers["X-API-Key"] = backend_api_key
+                        
                         async with aiohttp.ClientSession() as http_session:
                             # Just trigger the orchestrator - don't wait for it to complete
                             async with http_session.post(
                                 f"{backend_url}/post-call-orchestrator",
                                 json={"session_id": session_id},
+                                headers=headers,
                                 timeout=aiohttp.ClientTimeout(total=5)
                             ) as response:
                                 if response.status in (200, 202):
