@@ -123,7 +123,8 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
 
 class OnboardingAgent(Agent):
     """Agent for new users going through onboarding."""
-    def __init__(self) -> None:
+    def __init__(self, job_context=None) -> None:
+        self.job_context = job_context
         super().__init__(
             instructions=load_prompt('onboarding_prompt.txt'),
         )
@@ -138,7 +139,8 @@ class OnboardingAgent(Agent):
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
-    def __init__(self) -> None:
+    def __init__(self, job_context=None) -> None:
+        self.job_context = job_context
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
         )
@@ -212,10 +214,39 @@ class InterviewAgent(Agent):
         await self.session.say("Ok, let's go through the onboarding process again. Hold on a few moments while I find my script.")
         
         # Switch to the onboarding agent
-        self.session.update_agent(OnboardingAgent())
+        self.session.update_agent(OnboardingAgent(job_context=self.job_context))
         
         # No generation required after the transfer - the new agent will handle it
         return None
+
+    @function_tool
+    async def end_call(self, context: RunContext):
+        """End the interview call. Use this tool when you have completed the interview and said 
+        goodbye to the user. This will gracefully end the call and clean up the session.
+        
+        IMPORTANT: Before calling this tool, you MUST:
+        1. Thank the user for the conversation
+        2. Tell them what to expect next (their avatar video will be created from this interview)
+        3. Say goodbye
+        
+        Only call this tool AFTER you have said your final goodbye message to the user.
+        """
+        if not self.job_context:
+            logger.error("No job context available for end_call")
+            return None, "Failed to end call: No job context available"
+        
+        room_name = self.job_context.room.name
+        logger.info(f"Ending interview call - deleting room {room_name}")
+        
+        try:
+            await self.job_context.api.room.delete_room(
+                api.DeleteRoomRequest(room=room_name)
+            )
+            logger.info(f"Successfully ended call and deleted room {room_name}")
+            return None, "Call ended successfully."
+        except Exception as e:
+            logger.error(f"Error ending call: {e}")
+            return None, f"Failed to end call: {e}"
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -278,8 +309,8 @@ async def entrypoint(ctx: agents.JobContext):
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
-        avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
-        #avatar_id = "20488bb4-51fa-45aa-9c0a-154db37a4322"  # Me
+        #avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
+        avatar_id = "09392442-ad79-4f3a-b646-fbe20a6d616f"  # Me
         tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         logger.info(f"Female name detected - using Phil avatar and male voice")
@@ -287,11 +318,11 @@ async def entrypoint(ctx: agents.JobContext):
     # Select the appropriate agent based on user status
     if is_returning_user:
         logger.info(f"Returning user detected - using InterviewAgent")
-        initial_agent = InterviewAgent()
+        initial_agent = InterviewAgent(job_context=ctx)
         call_type = "interview"
     else:
         logger.info(f"New user detected - using OnboardingAgent")
-        initial_agent = OnboardingAgent()
+        initial_agent = OnboardingAgent(job_context=ctx)
         call_type = "onboarding"
     
     # Metrics collection, to measure pipeline performance
