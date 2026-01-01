@@ -137,6 +137,37 @@ class OnboardingAgent(Agent):
             instructions="Greet the user and explain the onboarding process."
         )
 
+    @function_tool
+    async def end_call(self, context: RunContext):
+        """End the onboarding call. Use this tool when you have completed all 5 onboarding 
+        objectives and said goodbye to the user. This will gracefully end the call and 
+        clean up the session.
+        
+        IMPORTANT: Before calling this tool, you MUST:
+        1. Have covered all 5 onboarding objectives (expertise, background, common mistakes, what they're building, problem they're solving)
+        2. Thank the user for the conversation
+        3. Tell them their expert avatar will be created from this onboarding
+        4. Say goodbye
+        
+        Only call this tool AFTER you have said your final goodbye message to the user.
+        """
+        if not self.job_context:
+            logger.error("No job context available for end_call")
+            return None, "Failed to end call: No job context available"
+        
+        room_name = self.job_context.room.name
+        logger.info(f"Ending onboarding call - deleting room {room_name}")
+        
+        try:
+            await self.job_context.api.room.delete_room(
+                api.DeleteRoomRequest(room=room_name)
+            )
+            logger.info(f"Successfully ended call and deleted room {room_name}")
+            return None, "Call ended successfully."
+        except Exception as e:
+            logger.error(f"Error ending call: {e}")
+            return None, f"Failed to end call: {e}"
+
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
     def __init__(self, job_context=None) -> None:
@@ -219,34 +250,6 @@ class InterviewAgent(Agent):
         # No generation required after the transfer - the new agent will handle it
         return None
 
-    @function_tool
-    async def end_call(self, context: RunContext):
-        """End the interview call. Use this tool when you have completed the interview and said 
-        goodbye to the user. This will gracefully end the call and clean up the session.
-        
-        IMPORTANT: Before calling this tool, you MUST:
-        1. Thank the user for the conversation
-        2. Tell them what to expect next (their avatar video will be created from this interview)
-        3. Say goodbye
-        
-        Only call this tool AFTER you have said your final goodbye message to the user.
-        """
-        if not self.job_context:
-            logger.error("No job context available for end_call")
-            return None, "Failed to end call: No job context available"
-        
-        room_name = self.job_context.room.name
-        logger.info(f"Ending interview call - deleting room {room_name}")
-        
-        try:
-            await self.job_context.api.room.delete_room(
-                api.DeleteRoomRequest(room=room_name)
-            )
-            logger.info(f"Successfully ended call and deleted room {room_name}")
-            return None, "Call ended successfully."
-        except Exception as e:
-            logger.error(f"Error ending call: {e}")
-            return None, f"Failed to end call: {e}"
 
 
 async def entrypoint(ctx: agents.JobContext):
