@@ -37,9 +37,9 @@ BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    logger.info("✅ Supabase client initialized")
+    logger.info("Supabase client initialized")
 else:
-    logger.warning("⚠️ Supabase credentials not found - will only save to local files")
+    logger.warning("Supabase credentials not found - will only save to local files")
 
 # Initialize user data service
 user_service = UserDataService(supabase)
@@ -123,10 +123,16 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
 
 class OnboardingAgent(Agent):
     """Agent for new users going through onboarding."""
-    def __init__(self, job_context=None) -> None:
+    def __init__(self, job_context=None, agent_name: str = "Ashley") -> None:
         self.job_context = job_context
+        self.agent_name = agent_name
+        
+        # Load prompt and inject agent name
+        base_prompt = load_prompt('onboarding_prompt.txt')
+        personalized_prompt = base_prompt.replace("[AGENT_NAME]", agent_name)
+        
         super().__init__(
-            instructions=load_prompt('onboarding_prompt.txt'),
+            instructions=personalized_prompt,
         )
     
     async def on_enter(self) -> None:
@@ -170,8 +176,9 @@ class OnboardingAgent(Agent):
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
-    def __init__(self, job_context=None) -> None:
+    def __init__(self, job_context=None, agent_name: str = "Ashley") -> None:
         self.job_context = job_context
+        self.agent_name = agent_name
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
         )
@@ -216,6 +223,12 @@ class InterviewAgent(Agent):
             user_context
         )
         
+        # Inject agent name into the prompt
+        personalized_prompt = personalized_prompt.replace(
+            "[AGENT_NAME]",
+            self.agent_name
+        )
+        
         # Update the agent's instructions
         await self.update_instructions(personalized_prompt)
 
@@ -244,8 +257,8 @@ class InterviewAgent(Agent):
         # Inform the user about the transfer
         await self.session.say("Ok, let's go through the onboarding process again. Hold on a few moments while I find my script.")
         
-        # Switch to the onboarding agent
-        self.session.update_agent(OnboardingAgent(job_context=self.job_context))
+        # Switch to the onboarding agent (preserve the same agent name/persona)
+        self.session.update_agent(OnboardingAgent(job_context=self.job_context, agent_name=self.agent_name))
         
         # No generation required after the transfer - the new agent will handle it
         return None
@@ -304,28 +317,30 @@ async def entrypoint(ctx: agents.JobContext):
     first_name = user_info.get('firstName', '')
     detected_gender = gender_detector.detect_gender(first_name)
     
-    # Select avatar and voice based on gender
+    # Select avatar, voice, and agent name based on gender
     # If male -> use Ashley (female avatar/voice)
     # If female -> use Phil (male avatar/voice)
     if detected_gender == "female":
         avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
+        agent_name = "Ashley"
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         #avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
         avatar_id = "09392442-ad79-4f3a-b646-fbe20a6d616f"  # Me
         tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
+        agent_name = "Phil"
         logger.info(f"Female name detected - using Phil avatar and male voice")
     
     # Select the appropriate agent based on user status
     if is_returning_user:
         logger.info(f"Returning user detected - using InterviewAgent")
-        initial_agent = InterviewAgent(job_context=ctx)
+        initial_agent = InterviewAgent(job_context=ctx, agent_name=agent_name)
         call_type = "interview"
     else:
         logger.info(f"New user detected - using OnboardingAgent")
-        initial_agent = OnboardingAgent(job_context=ctx)
+        initial_agent = OnboardingAgent(job_context=ctx, agent_name=agent_name)
         call_type = "onboarding"
     
     # Metrics collection, to measure pipeline performance
