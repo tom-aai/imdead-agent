@@ -176,9 +176,10 @@ class OnboardingAgent(Agent):
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
-    def __init__(self, job_context=None, agent_name: str = "Ashley") -> None:
+    def __init__(self, job_context=None, agent_name: str = "Ashley", session_state: dict = None) -> None:
         self.job_context = job_context
         self.agent_name = agent_name
+        self.session_state = session_state
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
         )
@@ -253,6 +254,11 @@ class InterviewAgent(Agent):
         Always confirm with the user before transferring them, making sure to mention that previous onboarding data is not deleted but only additional data is added.
         """
         logger.info("🔄 Transfer to onboarding agent requested")
+        
+        # Update call type to reflect the transfer
+        if self.session_state:
+            self.session_state["call_type"] = "onboarding"
+            logger.info("📝 Updated call_type to 'onboarding'")
         
         # Inform the user about the transfer
         await self.session.say("Ok, let's go through the onboarding process again. Hold on a few moments while I find my script.")
@@ -334,14 +340,17 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Female name detected - using Phil avatar and male voice")
     
     # Select the appropriate agent based on user status
+    # Use a dict so it can be mutated by agents during transfers
+    session_state = {"call_type": None}
+    
     if is_returning_user:
         logger.info(f"Returning user detected - using InterviewAgent")
-        initial_agent = InterviewAgent(job_context=ctx, agent_name=agent_name)
-        call_type = "interview"
+        initial_agent = InterviewAgent(job_context=ctx, agent_name=agent_name, session_state=session_state)
+        session_state["call_type"] = "interview"
     else:
         logger.info(f"New user detected - using OnboardingAgent")
         initial_agent = OnboardingAgent(job_context=ctx, agent_name=agent_name)
-        call_type = "onboarding"
+        session_state["call_type"] = "onboarding"
     
     # Metrics collection, to measure pipeline performance
     usage_collector = metrics.UsageCollector()
@@ -382,7 +391,7 @@ async def entrypoint(ctx: agents.JobContext):
             chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL,
             recording_id=recording_id,
-            call_type=call_type,
+            call_type=session_state["call_type"],
             backend_api_key=BACKEND_API_KEY
         )
 
