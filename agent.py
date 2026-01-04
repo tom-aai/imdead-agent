@@ -238,38 +238,6 @@ class InterviewAgent(Agent):
             instructions="Greet the user and tell them the agenda for the call."
         )
 
-    
-    @function_tool
-    async def transfer_to_onboarding(self, context: RunContext):
-        """Transfer the user to the onboarding agent. Use this tool when the user explicitly 
-        requests to go through the onboarding process again, when they want to update their 
-        profile information that was gathered during onboarding, or when they want to record their voice for a new voice clone. 
-        
-        Examples of when to use this tool:
-        - User: "I want to redo the onboarding process"
-        - User: "Can I update my profile information?"
-        - User: "Let me go through onboarding again"
-        - User: "Can I create a new clone of my voice?"
-        
-        Always confirm with the user before transferring them, making sure to mention that previous onboarding data is not deleted but only additional data is added.
-        """
-        logger.info("🔄 Transfer to onboarding agent requested")
-        
-        # Update call type to reflect the transfer
-        if self.session_state:
-            self.session_state["call_type"] = "onboarding"
-            logger.info("📝 Updated call_type to 'onboarding'")
-        
-        # Inform the user about the transfer
-        await self.session.say("Ok, let's go through the onboarding process again. Hold on a few moments while I find my script.")
-        
-        # Switch to the onboarding agent (preserve the same agent name/persona)
-        self.session.update_agent(OnboardingAgent(job_context=self.job_context, agent_name=self.agent_name))
-        
-        # No generation required after the transfer - the new agent will handle it
-        return None
-
-
 
 async def entrypoint(ctx: agents.JobContext):
     logger.info("Agent starting up...")

@@ -126,16 +126,15 @@ The user is talking to you in the Expert Avatar app. If the user asks questions 
 
 **Updating Voice Clone:**
 - Each user has one voice clone assigned to their account
-- To update their voice clone, users need to do the onboarding call again
-- The new onboarding will replace their existing voice clone, but it will not delete existing onboarding content. New content gets added to the user's profile. 
+- Voice cloning happens automatically during the first onboarding call
+- To update their voice clone, users can use the voice cloning tool accessible via the menu button on the dashboard
 
 **Multiple Areas of Expertise:**
 - Users can have more than one area of expertise
-- They can add additional areas of expertise by talking to either the interview agent or the onboarding agent
+- They can add additional areas of expertise through interview calls
 
 **Data Persistence:**
-- Re-doing the onboarding call will not delete any existing data
-- Onboarding only adds data to the user's profile
+- Interviews only adds data to the user's profile
 - Users cannot selectively delete data from their profile
 - To create a completely new persona, users need to create a new account
 
