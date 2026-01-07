@@ -4,9 +4,7 @@ Handles all Supabase interactions for user-related data.
 """
 
 import aiohttp
-import json
 import logging
-import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
@@ -211,82 +209,39 @@ class UserDataService:
         self,
         session_id: str,
         job_id: str,
-        room_name: str,
         user_info: Dict[str, Any],
         picture_id: Optional[str],
         conversation_data: dict,
         usage_data: dict,
         usage_summary: Any,
-        chat_history_dir: str,
         backend_url: str,
         recording_id: Optional[str] = None,
         call_type: str = "interview",
-        backend_api_key: Optional[str] = None
+        backend_api_key: Optional[str] = None,
+        original_session_id: Optional[str] = None
     ) -> None:
         """
-        Save complete chat history to local JSON file and Supabase.
+        Save complete chat history to Supabase.
         
         Args:
             session_id: LiveKit session/room SID
             job_id: LiveKit job ID
-            room_name: Room name (used as fallback for filename)
             user_info: Dictionary containing user information
             picture_id: Picture ID for avatar (optional)
             conversation_data: Conversation history dictionary
             usage_data: Usage metrics dictionary
             usage_summary: Usage summary object with metrics
-            chat_history_dir: Directory to save local JSON files
             backend_url: Backend URL for post-call orchestrator
             recording_id: UUID of the recording file (optional)
-            call_type: Type of call - 'onboarding' or 'interview' (default: 'interview')
+            call_type: Type of call - 'onboarding', 'interview', or 'resume' (default: 'interview')
             backend_api_key: API key for authenticating with the backend (optional)
+            original_session_id: For resume sessions, the original session ID to append to (optional)
         """
         try:
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             user_id = user_info.get('userId', '')
             
-            # Determine filename based on available identifiers
-            if user_id:
-                filename = os.path.join(chat_history_dir, f"chat_history_{user_id}_{current_time}.json")
-            elif picture_id:
-                filename = os.path.join(chat_history_dir, f"chat_history_{picture_id}_{current_time}.json")
-            else:
-                filename = os.path.join(chat_history_dir, f"chat_history_{room_name}_{current_time}.json")
-            
-            # Add session metadata including user info, picture_id, and LiveKit session info
-            session_metadata = {
-                # LiveKit session identifiers
-                "session_id": session_id,
-                "job_id": job_id,
-                
-                # User-specific metadata
-                "picture_id": picture_id or '',
-                "user_id": user_id,
-                "user_firstname": user_info.get('firstName') or '',
-                "user_lastname": user_info.get('lastName') or '',
-                
-                # Recording metadata
-                "recording_id": recording_id,
-                
-                # Call type
-                "call_type": call_type,
-                
-                # Timestamps
-                "timestamp": current_time,
-                
-                # Usage metrics
-                "usage": usage_data,
-                
-                # Conversation data
-                "conversation": conversation_data
-            }
-            
-            # 1. Save to local JSON file (backup)
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(session_metadata, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"📁 Chat history saved to {filename}")
-            
-            # 2. Save to Supabase database
+            # Save to Supabase database
             if user_id:
                 save_success = await self.save_interview_call(
                     session_id=session_id,
@@ -311,29 +266,43 @@ class UserDataService:
                     if picture_id:
                         await self.save_avatar_image_reference(user_id, picture_id)
                     
-                    # Trigger post-call orchestrator (fire and forget)
+                    # Trigger appropriate orchestrator (fire and forget)
                     try:
                         headers = {}
                         if backend_api_key:
                             headers["X-API-Key"] = backend_api_key
                         
                         async with aiohttp.ClientSession() as http_session:
-                            # Just trigger the orchestrator - don't wait for it to complete
+                            # Choose endpoint based on whether this is a resume session
+                            if original_session_id:
+                                # Resume session - append to existing session
+                                endpoint = f"{backend_url}/resume-session-orchestrator"
+                                payload = {
+                                    "session_id": session_id,
+                                    "original_session_id": original_session_id
+                                }
+                                self.logger.info(f"🔄 Triggering resume session orchestrator for {original_session_id}")
+                            else:
+                                # Regular session - full post-call processing
+                                endpoint = f"{backend_url}/post-call-orchestrator"
+                                payload = {"session_id": session_id}
+                            
                             async with http_session.post(
-                                f"{backend_url}/post-call-orchestrator",
-                                json={"session_id": session_id},
+                                endpoint,
+                                json=payload,
                                 headers=headers,
                                 timeout=aiohttp.ClientTimeout(total=5)
                             ) as response:
                                 if response.status in (200, 202):
-                                    self.logger.info(f"✅ Post-call orchestrator triggered for session {session_id}")
+                                    if original_session_id:
+                                        self.logger.info(f"✅ Resume session orchestrator triggered for session {original_session_id}")
+                                    else:
+                                        self.logger.info(f"✅ Post-call orchestrator triggered for session {session_id}")
                                 else:
-                                    self.logger.warning(f"⚠️ Post-call orchestrator returned status {response.status}")
+                                    self.logger.warning(f"⚠️ Orchestrator returned status {response.status}")
                     except Exception as backend_error:
-                        self.logger.warning(f"⚠️ Could not trigger post-call orchestrator: {backend_error}")
+                        self.logger.warning(f"⚠️ Could not trigger orchestrator: {backend_error}")
                         self.logger.info("💾 Transcript is saved in Supabase and can be processed manually if needed")
-                else:
-                    self.logger.info("💾 Data is still saved in local JSON file as backup")
             else:
                 self.logger.warning("⚠️ No user_id available - skipping Supabase upload")
                 

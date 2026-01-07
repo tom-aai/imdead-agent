@@ -24,10 +24,6 @@ logger = logging.getLogger("agent")
 # Suppress noisy hpack (HTTP/2) debug logs
 logging.getLogger("hpack").setLevel(logging.WARNING)
 
-# Create chat history directory if it doesn't exist
-chat_history_dir = "chat_history"
-os.makedirs(chat_history_dir, exist_ok=True)
-
 # Initialize Supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -176,10 +172,19 @@ class OnboardingAgent(Agent):
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
-    def __init__(self, job_context=None, agent_name: str = "Ashley", session_state: dict = None) -> None:
+    def __init__(
+        self, 
+        job_context=None, 
+        agent_name: str = "Ashley", 
+        session_state: dict = None,
+        is_resume_session: bool = False,
+        previous_conversation: str = None
+    ) -> None:
         self.job_context = job_context
         self.agent_name = agent_name
         self.session_state = session_state
+        self.is_resume_session = is_resume_session
+        self.previous_conversation = previous_conversation
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
         )
@@ -230,13 +235,47 @@ class InterviewAgent(Agent):
             self.agent_name
         )
         
+        # Inject session type context
+        session_type_context = self._build_session_type_context()
+        personalized_prompt = personalized_prompt.replace(
+            "[SESSION_TYPE_CONTEXT]",
+            session_type_context
+        )
+        
         # Update the agent's instructions
         await self.update_instructions(personalized_prompt)
 
-        # initial greeting.
-        await self.session.generate_reply(
-            instructions="Greet the user and tell them the agenda for the call."
-        )
+        # Generate appropriate greeting based on session type
+        if self.is_resume_session:
+            await self.session.generate_reply(
+                instructions="Welcome the user back warmly. Briefly acknowledge that you're continuing from your previous conversation. Ask what they'd like to explore further today."
+            )
+        else:
+            await self.session.generate_reply(
+                instructions="Greet the user and tell them the agenda for the call."
+            )
+    
+    def _build_session_type_context(self) -> str:
+        """Build the session type context based on whether this is a new or resumed session."""
+        if self.is_resume_session and self.previous_conversation:
+            logger.info("✅ Building resumed session context")
+            return f"""**This is a RESUMED SESSION.** The user has returned to continue a previous conversation.
+
+Here is the transcript of what was discussed previously:
+
+```json
+{self.previous_conversation}
+```
+
+**For this resumed session:**
+- Do NOT re-introduce yourself or explain what Expert Avatar is
+- Acknowledge warmly that you're picking up where you left off
+- Reference specific topics from the previous conversation naturally
+- Continue exploring their expertise without repeating ground already covered
+- Build on insights from the previous discussion
+- You may ask follow-up questions on topics that were touched on but not fully explored"""
+        else:
+            return "**This is a NEW SESSION.** This is either the user's first interview or a fresh conversation exploring a new topic. Start with introductions and establishing rapport."
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -252,12 +291,20 @@ async def entrypoint(ctx: agents.JobContext):
     # Get user info and pictureId from participant metadata (set during token generation)
     picture_id = None
     user_info = {}
+    is_resume_session = False
+    original_session_id = None
+    conversation_narrative = None
     
     if participant.metadata:
         try:
             metadata = json.loads(participant.metadata)
             raw_picture_id = metadata.get("pictureId")
             user_info = metadata.get("user", {})
+            
+            # Check for resume session data
+            is_resume_session = metadata.get("isResumeSession", False)
+            original_session_id = metadata.get("originalSessionId")
+            conversation_narrative = metadata.get("conversationNarrative")
             
             # Append .png to picture_id for the actual file reference
             if raw_picture_id:
@@ -273,6 +320,8 @@ async def entrypoint(ctx: agents.JobContext):
             logger.info(f"Last Name: {user_info.get('lastName', 'N/A')}")
             logger.info(f"Email: {user_info.get('email', 'N/A')}")
             logger.info(f"Picture ID: {picture_id or 'N/A'}")
+            if is_resume_session:
+                logger.info(f"🔄 RESUME SESSION: {original_session_id}")
             logger.info("=" * 50)
             
         except json.JSONDecodeError as e:
@@ -309,9 +358,20 @@ async def entrypoint(ctx: agents.JobContext):
     
     # Select the appropriate agent based on user status
     # Use a dict so it can be mutated by agents during transfers
-    session_state = {"call_type": None}
+    session_state = {"call_type": None, "original_session_id": original_session_id}
     
-    if is_returning_user:
+    if is_resume_session:
+        # Resume session always uses InterviewAgent with previous context
+        logger.info(f"🔄 Resume session detected - using InterviewAgent with previous context")
+        initial_agent = InterviewAgent(
+            job_context=ctx, 
+            agent_name=agent_name, 
+            session_state=session_state,
+            is_resume_session=True,
+            previous_conversation=conversation_narrative
+        )
+        session_state["call_type"] = "resume"
+    elif is_returning_user:
         logger.info(f"Returning user detected - using InterviewAgent")
         initial_agent = InterviewAgent(job_context=ctx, agent_name=agent_name, session_state=session_state)
         session_state["call_type"] = "interview"
@@ -350,17 +410,16 @@ async def entrypoint(ctx: agents.JobContext):
         await user_service.save_chat_history(
             session_id=room_sid,
             job_id=ctx.job.id,
-            room_name=ctx.room.name,
             user_info=user_info,
             picture_id=picture_id,
             conversation_data=history_data,
             usage_data=usage_data,
             usage_summary=usage_summary,
-            chat_history_dir=chat_history_dir,
             backend_url=BACKEND_URL,
             recording_id=recording_id,
             call_type=session_state["call_type"],
-            backend_api_key=BACKEND_API_KEY
+            backend_api_key=BACKEND_API_KEY,
+            original_session_id=session_state.get("original_session_id")
         )
 
     # Create the agent session for this participant
@@ -383,15 +442,17 @@ async def entrypoint(ctx: agents.JobContext):
     ctx.add_shutdown_callback(log_usage)
     ctx.add_shutdown_callback(save_chat_history)
 
-    # Start recording user's audio to Supabase storage
+    # Start recording user's audio to Supabase storage (skip for resume sessions - we already have their voice)
     # This records ONLY the user's audio (not the agent) and automatically stops when they leave
-    recording_id = await start_room_recording(ctx.room.name, user_id, participant.identity)
+    recording_id = None
+    if not is_resume_session:
+        recording_id = await start_room_recording(ctx.room.name, user_id, participant.identity)
+    else:
+        logger.info("⏭️ Skipping voice recording for resume session")
 
     # Start avatar
     avatar = hedra.AvatarSession(
-        avatar_id=avatar_id,  # Dynamically selected based on user's gender
-#        aspect_ratio="9:16",
-#        resolution="720p"
+        avatar_id=avatar_id
     )
     await avatar.start(session, room=ctx.room)
 
