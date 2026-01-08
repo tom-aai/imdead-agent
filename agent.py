@@ -261,21 +261,13 @@ class InterviewAgent(Agent):
             logger.info("✅ Building resumed session context")
             return f"""**This is a RESUMED SESSION.** The user has returned to continue a previous conversation.
 
-Here is the transcript of what was discussed previously:
+Here is a summary of what was discussed in the previous conversation:
 
-```json
-{self.previous_conversation}
-```
-
-**For this resumed session:**
-- Do NOT re-introduce yourself or explain what Expert Avatar is
-- Acknowledge warmly that you're picking up where you left off
-- Reference specific topics from the previous conversation naturally
-- Continue exploring their expertise without repeating ground already covered
-- Build on insights from the previous discussion
-- You may ask follow-up questions on topics that were touched on but not fully explored"""
+{self.previous_conversation}"""
         else:
-            return "**This is a NEW SESSION.** This is either the user's first interview or a fresh conversation exploring a new topic. Start with introductions and establishing rapport."
+            return """**This is a NEW SESSION.** Treat this as a completely fresh conversation."""
+
+
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -293,7 +285,7 @@ async def entrypoint(ctx: agents.JobContext):
     user_info = {}
     is_resume_session = False
     original_session_id = None
-    conversation_narrative = None
+    conversation_summary = None
     
     if participant.metadata:
         try:
@@ -304,7 +296,7 @@ async def entrypoint(ctx: agents.JobContext):
             # Check for resume session data
             is_resume_session = metadata.get("isResumeSession", False)
             original_session_id = metadata.get("originalSessionId")
-            conversation_narrative = metadata.get("conversationNarrative")
+            conversation_summary = metadata.get("conversationSummary")
             
             # Append .png to picture_id for the actual file reference
             if raw_picture_id:
@@ -368,7 +360,7 @@ async def entrypoint(ctx: agents.JobContext):
             agent_name=agent_name, 
             session_state=session_state,
             is_resume_session=True,
-            previous_conversation=conversation_narrative
+            previous_conversation=conversation_summary
         )
         session_state["call_type"] = "resume"
     elif is_returning_user:
