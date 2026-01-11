@@ -16,6 +16,7 @@ from supabase import create_client, Client
 from utils import load_prompt
 from services.gender_detection import GenderDetector
 from services.user_data import UserDataService, UserProfileData
+from services.message_data import MessageDataService, format_messages_for_prompt
 
 load_dotenv(".env.local")
 
@@ -39,6 +40,9 @@ else:
 
 # Initialize user data service
 user_service = UserDataService(supabase)
+
+# Initialize message data service
+message_service = MessageDataService(supabase)
 
 # Initialize gender detector (reuses Anthropic client across calls)
 gender_detector = GenderDetector()
@@ -247,9 +251,21 @@ class InterviewAgent(Agent):
 
         # Generate appropriate greeting based on session type
         if self.is_resume_session:
-            await self.session.generate_reply(
-                instructions="Welcome the user back warmly. Briefly acknowledge that you're continuing from your previous conversation. Ask what they'd like to explore further today."
-            )
+            # Check for pending messages in resume sessions
+            original_session_id = self.session_state.get("original_session_id") if self.session_state else None
+            pending_count = 0
+            if original_session_id:
+                pending_count = await message_service.get_pending_message_count(original_session_id)
+            
+            if pending_count > 0:
+                # Offer to check messages
+                await self.session.generate_reply(
+                    instructions=f"Welcome the user back warmly. Let them know they have {pending_count} new message{'s' if pending_count != 1 else ''} from students who chatted with their avatar. Ask if they'd like to check their messages first, or if they'd prefer to continue discussing their main topic. If they want to check messages, you have a check_messages tool available."
+                )
+            else:
+                await self.session.generate_reply(
+                    instructions="Welcome the user back warmly. Briefly acknowledge that you're continuing from your previous conversation. Ask what they'd like to explore further today."
+                )
         else:
             await self.session.generate_reply(
                 instructions="Greet the user and tell them the agenda for the call."
@@ -267,7 +283,222 @@ Here is a summary of what was discussed in the previous conversation:
         else:
             return """**This is a NEW SESSION.** Treat this as a completely fresh conversation."""
 
+    @function_tool
+    async def check_messages(self, context: RunContext) -> str:
+        """
+        Check messages from students. Use this when the user wants to review 
+        messages from students who chatted with their avatar.
+        """
+        # Get the original session ID from session state
+        session_state = self.session_state or {}
+        original_session_id = session_state.get("original_session_id")
+        main_topic = session_state.get("main_topic", "your expertise")
+        
+        if not original_session_id:
+            return "No session ID available to check messages."
+        
+        # Get pending messages
+        messages = await message_service.fetch_pending_messages(original_session_id)
+        
+        if not messages:
+            return "You don't have any pending messages from students right now."
+        
+        # Hand off to MailAgent
+        mail_agent = MailAgent(
+            job_context=self.job_context,
+            agent_name=self.agent_name,
+            session_state=self.session_state,
+            messages=messages,
+            original_session_id=original_session_id,
+            main_topic=main_topic
+        )
+        
+        await self.session.handoff(
+            agent=mail_agent,
+            keep_chat_ctx=True
+        )
+        
+        return f"Handing off to check {len(messages)} messages."
 
+
+class MailAgent(Agent):
+    """Agent for reviewing and responding to student messages."""
+    
+    def __init__(
+        self,
+        job_context=None,
+        agent_name: str = "Ashley",
+        session_state: dict = None,
+        messages: list = None,
+        original_session_id: str = None,
+        main_topic: str = "your expertise"
+    ) -> None:
+        self.job_context = job_context
+        self.agent_name = agent_name
+        self.session_state = session_state or {}
+        self.messages = messages or []
+        self.original_session_id = original_session_id
+        self.main_topic = main_topic
+        self.current_message_index = 0
+        
+        super().__init__(
+            instructions="",  # Will be set dynamically in on_enter()
+        )
+    
+    async def on_enter(self) -> None:
+        """Called when the mail agent is activated."""
+        logger.info(f"MailAgent activated with {len(self.messages)} messages")
+        
+        # Load and personalize the mail prompt
+        base_prompt = load_prompt('mail_prompt.txt')
+        
+        # Get expert name from session state
+        expert_name = "the expert"  # Default
+        if self.session_state:
+            expert_name = self.session_state.get("user_name", "the expert")
+        
+        # Format messages for prompt
+        messages_data = format_messages_for_prompt(self.messages)
+        
+        # Build personalized prompt
+        personalized_prompt = base_prompt.replace(
+            "[AGENT_NAME]", self.agent_name
+        ).replace(
+            "[EXPERT_NAME]", expert_name
+        ).replace(
+            "[MESSAGES_DATA]", messages_data
+        ).replace(
+            "[MAIN_TOPIC]", self.main_topic
+        )
+        
+        await self.update_instructions(personalized_prompt)
+        
+        # Generate opening
+        count = len(self.messages)
+        await self.session.generate_reply(
+            instructions=f"Tell the user they have {count} message{'s' if count != 1 else ''} from students to review. Then start presenting the first message."
+        )
+    
+    @function_tool
+    async def answer_question(
+        self,
+        context: RunContext,
+        message_id: str,
+        response: str
+    ) -> str:
+        """
+        Record the expert's answer to a student's question.
+        
+        Args:
+            message_id: The ID of the message being answered
+            response: The expert's answer to the question
+        """
+        success = message_service.update_message_status(
+            message_id=message_id,
+            status="answered",
+            expert_response=response
+        )
+        
+        if success:
+            logger.info(f"Recorded answer for message {message_id}")
+            return "Answer recorded. The student will be notified and can access your response through your avatar."
+        else:
+            return "There was an issue recording the answer. Please try again."
+    
+    @function_tool
+    async def approve_introduction(
+        self,
+        context: RunContext,
+        message_id: str
+    ) -> str:
+        """
+        Approve an introduction request from a student.
+        This will send an email connecting you with the student.
+        
+        Args:
+            message_id: The ID of the introduction request to approve
+        """
+        success = message_service.update_message_status(
+            message_id=message_id,
+            status="intro_sent"
+        )
+        
+        if success:
+            logger.info(f"Approved introduction for message {message_id}")
+            return "Introduction approved. An email will be sent to connect you with the student."
+        else:
+            return "There was an issue approving the introduction. Please try again."
+    
+    @function_tool
+    async def decline_message(
+        self,
+        context: RunContext,
+        message_id: str
+    ) -> str:
+        """
+        Decline a message from a student.
+        No notification will be sent to the student.
+        
+        Args:
+            message_id: The ID of the message to decline
+        """
+        success = message_service.update_message_status(
+            message_id=message_id,
+            status="declined"
+        )
+        
+        if success:
+            logger.info(f"Declined message {message_id}")
+            return "Message declined. No notification will be sent."
+        else:
+            return "There was an issue declining the message. Please try again."
+    
+    @function_tool
+    async def skip_message(
+        self,
+        context: RunContext,
+        message_id: str
+    ) -> str:
+        """
+        Skip a message to handle later.
+        The message will remain in pending status.
+        
+        Args:
+            message_id: The ID of the message to skip
+        """
+        logger.info(f"Skipped message {message_id}")
+        return "Message skipped. You can come back to it later."
+    
+    @function_tool
+    async def continue_interview(self, context: RunContext) -> str:
+        """
+        Transfer to the interview session to continue discussing the main topic.
+        Use this when the expert wants to continue exploring their main topic after reviewing messages.
+        """
+        # Hand back to the InterviewAgent to continue the main topic discussion
+        interview_agent = InterviewAgent(
+            job_context=self.job_context,
+            agent_name=self.agent_name,
+            session_state=self.session_state,
+            is_resume_session=True,
+            previous_conversation=self.session_state.get("conversation_summary", "")
+        )
+        
+        await self.session.handoff(
+            agent=interview_agent,
+            keep_chat_ctx=True
+        )
+        
+        return f"Transferring to continue discussing {self.main_topic}."
+
+    @function_tool
+    async def finish_mail_review(self, context: RunContext) -> str:
+        """
+        Complete the mail review session and end the call.
+        Use this when the expert is done reviewing messages and wants to end the session.
+        """
+        logger.info("Mail review completed - ending session")
+        return "Thank you for reviewing your messages. Goodbye!"
 
 
 async def entrypoint(ctx: agents.JobContext):
