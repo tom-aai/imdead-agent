@@ -182,7 +182,8 @@ class InterviewAgent(Agent):
         agent_name: str = "Ashley", 
         session_state: dict = None,
         is_resume_session: bool = False,
-        previous_conversation: str = None
+        previous_conversation: str = None,
+        chat_ctx=None
     ) -> None:
         self.job_context = job_context
         self.agent_name = agent_name
@@ -191,6 +192,7 @@ class InterviewAgent(Agent):
         self.previous_conversation = previous_conversation
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
+            chat_ctx=chat_ctx,  # Preserve chat context from previous agent
         )
     
     async def on_enter(self) -> None:
@@ -284,7 +286,7 @@ Here is a summary of what was discussed in the previous conversation:
             return """**This is a NEW SESSION.** Treat this as a completely fresh conversation."""
 
     @function_tool
-    async def check_messages(self, context: RunContext) -> str:
+    async def check_messages(self, context: RunContext):
         """
         Check messages from students. Use this when the user wants to review 
         messages from students who chatted with their avatar.
@@ -303,22 +305,19 @@ Here is a summary of what was discussed in the previous conversation:
         if not messages:
             return "You don't have any pending messages from students right now."
         
-        # Hand off to MailAgent
+        # Hand off to MailAgent by returning the new agent
+        # The framework automatically handles the handoff when an Agent is returned
         mail_agent = MailAgent(
             job_context=self.job_context,
             agent_name=self.agent_name,
             session_state=self.session_state,
             messages=messages,
             original_session_id=original_session_id,
-            main_topic=main_topic
+            main_topic=main_topic,
+            chat_ctx=self.chat_ctx  # Preserve chat context
         )
         
-        await self.session.handoff(
-            agent=mail_agent,
-            keep_chat_ctx=True
-        )
-        
-        return f"Handing off to check {len(messages)} messages."
+        return mail_agent, f"Transferring to check {len(messages)} messages."
 
 
 class MailAgent(Agent):
@@ -331,7 +330,8 @@ class MailAgent(Agent):
         session_state: dict = None,
         messages: list = None,
         original_session_id: str = None,
-        main_topic: str = "your expertise"
+        main_topic: str = "your expertise",
+        chat_ctx=None
     ) -> None:
         self.job_context = job_context
         self.agent_name = agent_name
@@ -343,6 +343,7 @@ class MailAgent(Agent):
         
         super().__init__(
             instructions="",  # Will be set dynamically in on_enter()
+            chat_ctx=chat_ctx,  # Preserve chat context from previous agent
         )
     
     async def on_enter(self) -> None:
@@ -470,26 +471,23 @@ class MailAgent(Agent):
         return "Message skipped. You can come back to it later."
     
     @function_tool
-    async def continue_interview(self, context: RunContext) -> str:
+    async def continue_interview(self, context: RunContext):
         """
         Transfer to the interview session to continue discussing the main topic.
         Use this when the expert wants to continue exploring their main topic after reviewing messages.
         """
-        # Hand back to the InterviewAgent to continue the main topic discussion
+        # Hand back to the InterviewAgent by returning the new agent
+        # The framework automatically handles the handoff when an Agent is returned
         interview_agent = InterviewAgent(
             job_context=self.job_context,
             agent_name=self.agent_name,
             session_state=self.session_state,
             is_resume_session=True,
-            previous_conversation=self.session_state.get("conversation_summary", "")
+            previous_conversation=self.session_state.get("conversation_summary", ""),
+            chat_ctx=self.chat_ctx  # Preserve chat context
         )
         
-        await self.session.handoff(
-            agent=interview_agent,
-            keep_chat_ctx=True
-        )
-        
-        return f"Transferring to continue discussing {self.main_topic}."
+        return interview_agent, f"Transferring to continue discussing {self.main_topic}."
 
     @function_tool
     async def finish_mail_review(self, context: RunContext) -> str:
@@ -566,14 +564,13 @@ async def entrypoint(ctx: agents.JobContext):
     # Select avatar, voice, and agent name based on gender
     # If male -> use Ashley (female avatar/voice)
     # If female -> use Phil (male avatar/voice)
-    if detected_gender == "female":
+    if detected_gender == "male":
         avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
         agent_name = "Ashley"
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
-        #avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
-        avatar_id = "09392442-ad79-4f3a-b646-fbe20a6d616f"  # Me
+        avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
         tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         agent_name = "Phil"
