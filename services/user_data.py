@@ -14,6 +14,28 @@ from supabase import Client
 logger = logging.getLogger(__name__)
 
 
+def build_session_type_context(is_resume_session: bool, previous_conversation: Optional[str] = None) -> str:
+    """
+    Build the session type context for injection into the interview prompt.
+    
+    Args:
+        is_resume_session: Whether this is a resumed session
+        previous_conversation: Summary of the previous conversation (for resume sessions)
+        
+    Returns:
+        Formatted context string for the prompt
+    """
+    if is_resume_session and previous_conversation:
+        logger.info("Building resumed session context")
+        return f"""**This is a RESUMED SESSION.** The user has returned to continue a previous conversation.
+
+Here is a summary of what was discussed in the previous conversation:
+
+{previous_conversation}"""
+    else:
+        return """**This is a NEW SESSION.** Treat this as a completely fresh conversation."""
+
+
 @dataclass
 class UserProfileData:
     """Store user profile data for personalized prompts."""

@@ -15,7 +15,7 @@ from supabase import create_client, Client
 
 from utils import load_prompt
 from services.gender_detection import GenderDetector
-from services.user_data import UserDataService, UserProfileData
+from services.user_data import UserDataService, UserProfileData, build_session_type_context
 from services.message_data import MessageDataService, format_messages_for_prompt
 
 load_dotenv(".env.local")
@@ -67,7 +67,7 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
     s3_region = os.getenv("SUPABASE_S3_REGION", "auto")
     
     if not all([supabase_project_id, s3_access_key_id, s3_secret_access_key]):
-        logger.warning("⚠️ Supabase S3 credentials not found - skipping recording")
+        logger.warning("Supabase S3 credentials not found - skipping recording")
         return None
     
     # Construct the S3-compatible endpoint for Supabase storage
@@ -242,7 +242,10 @@ class InterviewAgent(Agent):
         )
         
         # Inject session type context
-        session_type_context = self._build_session_type_context()
+        session_type_context = build_session_type_context(
+            self.is_resume_session, 
+            self.previous_conversation
+        )
         personalized_prompt = personalized_prompt.replace(
             "[SESSION_TYPE_CONTEXT]",
             session_type_context
@@ -272,18 +275,6 @@ class InterviewAgent(Agent):
             await self.session.generate_reply(
                 instructions="Greet the user and tell them the agenda for the call."
             )
-    
-    def _build_session_type_context(self) -> str:
-        """Build the session type context based on whether this is a new or resumed session."""
-        if self.is_resume_session and self.previous_conversation:
-            logger.info("✅ Building resumed session context")
-            return f"""**This is a RESUMED SESSION.** The user has returned to continue a previous conversation.
-
-Here is a summary of what was discussed in the previous conversation:
-
-{self.previous_conversation}"""
-        else:
-            return """**This is a NEW SESSION.** Treat this as a completely fresh conversation."""
 
     @function_tool
     async def check_messages(self, context: RunContext):
@@ -381,94 +372,65 @@ class MailAgent(Agent):
         )
     
     @function_tool
-    async def answer_question(
+    async def handle_message(
         self,
         context: RunContext,
         message_id: str,
-        response: str
+        action: str,
+        response: Optional[str] = None
     ) -> str:
         """
-        Record the expert's answer to a student's question.
+        Handle a student message with the specified action.
         
         Args:
-            message_id: The ID of the message being answered
-            response: The expert's answer to the question
+            message_id: The ID of the message to handle
+            action: The action to take - must be one of: 'answer', 'approve', 'decline', 'skip'
+            response: The expert's answer (required only when action is 'answer')
         """
-        success = message_service.update_message_status(
-            message_id=message_id,
-            status="answered",
-            expert_response=response
-        )
+        action = action.lower().strip()
         
-        if success:
-            logger.info(f"Recorded answer for message {message_id}")
-            return "Answer recorded. The student will be notified and can access your response through your avatar."
+        if action == "answer":
+            if not response:
+                return "Please provide a response when answering a question."
+            success = message_service.update_message_status(
+                message_id=message_id,
+                status="answered",
+                expert_response=response
+            )
+            if success:
+                logger.info(f"Recorded answer for message {message_id}")
+                return "Answer recorded. The student will be notified and can access your response through your avatar."
+            else:
+                return "There was an issue recording the answer. Please try again."
+        
+        elif action == "approve":
+            success = message_service.update_message_status(
+                message_id=message_id,
+                status="intro_sent"
+            )
+            if success:
+                logger.info(f"Approved introduction for message {message_id}")
+                return "Introduction approved. An email will be sent to connect you with the student."
+            else:
+                return "There was an issue approving the introduction. Please try again."
+        
+        elif action == "decline":
+            success = message_service.update_message_status(
+                message_id=message_id,
+                status="declined"
+            )
+            if success:
+                logger.info(f"Declined message {message_id}")
+                return "Message declined. No notification will be sent."
+            else:
+                return "There was an issue declining the message. Please try again."
+        
+        elif action == "skip":
+            logger.info(f"Skipped message {message_id}")
+            return "Message skipped. You can come back to it later."
+        
         else:
-            return "There was an issue recording the answer. Please try again."
-    
-    @function_tool
-    async def approve_introduction(
-        self,
-        context: RunContext,
-        message_id: str
-    ) -> str:
-        """
-        Approve an introduction request from a student.
-        This will send an email connecting you with the student.
-        
-        Args:
-            message_id: The ID of the introduction request to approve
-        """
-        success = message_service.update_message_status(
-            message_id=message_id,
-            status="intro_sent"
-        )
-        
-        if success:
-            logger.info(f"Approved introduction for message {message_id}")
-            return "Introduction approved. An email will be sent to connect you with the student."
-        else:
-            return "There was an issue approving the introduction. Please try again."
-    
-    @function_tool
-    async def decline_message(
-        self,
-        context: RunContext,
-        message_id: str
-    ) -> str:
-        """
-        Decline a message from a student.
-        No notification will be sent to the student.
-        
-        Args:
-            message_id: The ID of the message to decline
-        """
-        success = message_service.update_message_status(
-            message_id=message_id,
-            status="declined"
-        )
-        
-        if success:
-            logger.info(f"Declined message {message_id}")
-            return "Message declined. No notification will be sent."
-        else:
-            return "There was an issue declining the message. Please try again."
-    
-    @function_tool
-    async def skip_message(
-        self,
-        context: RunContext,
-        message_id: str
-    ) -> str:
-        """
-        Skip a message to handle later.
-        The message will remain in pending status.
-        
-        Args:
-            message_id: The ID of the message to skip
-        """
-        logger.info(f"Skipped message {message_id}")
-        return "Message skipped. You can come back to it later."
+            return f"Unknown action '{action}'. Use 'answer', 'approve', 'decline', or 'skip'."
     
     @function_tool
     async def continue_interview(self, context: RunContext):
