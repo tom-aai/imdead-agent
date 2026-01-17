@@ -1,5 +1,5 @@
 """
-Message data service for fetching student messages for the mail agent.
+Message data service for fetching seeker messages for the mail agent.
 """
 
 import logging
@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class StudentMessage:
-    """A message from a student to the expert."""
+class SeekerMessage:
+    """A message from a seeker to the expert."""
     id: str
     source_session_id: str
     chat_session_id: str
-    student_user_id: str
-    student_name: str
-    student_company: Optional[str]
-    student_role: Optional[str]
+    seeker_user_id: str
+    seeker_name: str
+    seeker_company: Optional[str]
+    seeker_role: Optional[str]
     message_content: str
     message_type: str  # "question" or "introduction_request"
     status: str
@@ -34,7 +34,7 @@ class MessageDataService:
         self.supabase = supabase_client
         self.logger = logging.getLogger(__name__)
 
-    async def fetch_pending_messages(self, source_session_id: str) -> List[StudentMessage]:
+    async def fetch_pending_messages(self, source_session_id: str) -> List[SeekerMessage]:
         """
         Fetch all pending messages for a given source session.
 
@@ -42,16 +42,16 @@ class MessageDataService:
             source_session_id: The source interview session ID
 
         Returns:
-            List of StudentMessage objects
+            List of SeekerMessage objects
         """
         if not self.supabase or not source_session_id:
             self.logger.warning("Cannot fetch messages - no client or session_id")
             return []
 
         try:
-            response = self.supabase.table("student_messages").select(
-                "id, source_session_id, chat_session_id, student_user_id, "
-                "student_name, student_company, student_role, "
+            response = self.supabase.table("seeker_messages").select(
+                "id, source_session_id, chat_session_id, seeker_user_id, "
+                "seeker_name, seeker_company, seeker_role, "
                 "message_content, message_type, status, created_at"
             ).eq("source_session_id", source_session_id)\
              .eq("status", "pending")\
@@ -63,14 +63,14 @@ class MessageDataService:
 
             messages = []
             for row in response.data:
-                messages.append(StudentMessage(
+                messages.append(SeekerMessage(
                     id=row.get("id"),
                     source_session_id=row.get("source_session_id"),
                     chat_session_id=row.get("chat_session_id"),
-                    student_user_id=row.get("student_user_id"),
-                    student_name=row.get("student_name", "Unknown"),
-                    student_company=row.get("student_company"),
-                    student_role=row.get("student_role"),
+                    seeker_user_id=row.get("seeker_user_id"),
+                    seeker_name=row.get("seeker_name", "Unknown"),
+                    seeker_company=row.get("seeker_company"),
+                    seeker_role=row.get("seeker_role"),
                     message_content=row.get("message_content", ""),
                     message_type=row.get("message_type", "question"),
                     status=row.get("status", "pending"),
@@ -98,7 +98,7 @@ class MessageDataService:
             return 0
 
         try:
-            response = self.supabase.table("student_messages").select(
+            response = self.supabase.table("seeker_messages").select(
                 "id", count="exact"
             ).eq("source_session_id", source_session_id)\
              .eq("status", "pending")\
@@ -138,7 +138,7 @@ class MessageDataService:
                 from datetime import datetime, UTC
                 update_data["read_at"] = datetime.now(UTC).isoformat()
 
-            self.supabase.table("student_messages").update(
+            self.supabase.table("seeker_messages").update(
                 update_data
             ).eq("id", message_id).execute()
 
@@ -150,12 +150,12 @@ class MessageDataService:
             return False
 
 
-def format_messages_for_prompt(messages: List[StudentMessage]) -> str:
+def format_messages_for_prompt(messages: List[SeekerMessage]) -> str:
     """
     Format messages for inclusion in the mail agent prompt.
 
     Args:
-        messages: List of StudentMessage objects
+        messages: List of SeekerMessage objects
 
     Returns:
         Formatted string for the prompt
@@ -166,11 +166,11 @@ def format_messages_for_prompt(messages: List[StudentMessage]) -> str:
     lines = []
     for i, msg in enumerate(messages, 1):
         # Build context string
-        context_parts = [msg.student_name]
-        if msg.student_role:
-            context_parts.append(msg.student_role)
-        if msg.student_company:
-            context_parts.append(f"at {msg.student_company}")
+        context_parts = [msg.seeker_name]
+        if msg.seeker_role:
+            context_parts.append(msg.seeker_role)
+        if msg.seeker_company:
+            context_parts.append(f"at {msg.seeker_company}")
         context = ", ".join(context_parts)
 
         # Format message

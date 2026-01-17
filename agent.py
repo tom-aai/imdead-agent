@@ -265,7 +265,7 @@ class InterviewAgent(Agent):
             if pending_count > 0:
                 # Offer to check messages
                 await self.session.generate_reply(
-                    instructions=f"Welcome the user back warmly. Let them know they have {pending_count} new message{'s' if pending_count != 1 else ''} from students who chatted with their avatar. Ask if they'd like to check their messages first, or if they'd prefer to continue discussing their main topic. If they want to check messages, you have a check_messages tool available."
+                    instructions=f"Welcome the user back warmly. Let them know they have {pending_count} new message{'s' if pending_count != 1 else ''} from seekers who chatted with their avatar. Ask if they'd like to check their messages first, or if they'd prefer to continue discussing their main topic. If they want to check messages, you have a check_messages tool available."
                 )
             else:
                 await self.session.generate_reply(
@@ -279,8 +279,8 @@ class InterviewAgent(Agent):
     @function_tool
     async def check_messages(self, context: RunContext):
         """
-        Check messages from students. Use this when the user wants to review 
-        messages from students who chatted with their avatar.
+        Check messages from seekers. Use this when the user wants to review 
+        messages from seekers who chatted with their avatar.
         """
         # Get the original session ID from session state
         session_state = self.session_state or {}
@@ -294,7 +294,7 @@ class InterviewAgent(Agent):
         messages = await message_service.fetch_pending_messages(original_session_id)
         
         if not messages:
-            return "You don't have any pending messages from students right now."
+            return "You don't have any pending messages from seekers right now."
         
         # Hand off to MailAgent by returning the new agent
         # The framework automatically handles the handoff when an Agent is returned
@@ -312,7 +312,7 @@ class InterviewAgent(Agent):
 
 
 class MailAgent(Agent):
-    """Agent for reviewing and responding to student messages."""
+    """Agent for reviewing and responding to seeker messages."""
     
     def __init__(
         self,
@@ -368,7 +368,7 @@ class MailAgent(Agent):
         # Generate opening
         count = len(self.messages)
         await self.session.generate_reply(
-            instructions=f"Tell the user they have {count} message{'s' if count != 1 else ''} from students to review. Then start presenting the first message."
+            instructions=f"Tell the user they have {count} message{'s' if count != 1 else ''} from seekers to review. Then start presenting the first message."
         )
     
     @function_tool
@@ -380,7 +380,7 @@ class MailAgent(Agent):
         response: Optional[str] = None
     ) -> str:
         """
-        Handle a student message with the specified action.
+        Handle a seeker message with the specified action.
         
         Args:
             message_id: The ID of the message to handle
@@ -399,18 +399,18 @@ class MailAgent(Agent):
             )
             if success:
                 logger.info(f"Recorded answer for message {message_id}")
-                return "Answer recorded. The student will be notified and can access your response through your avatar."
+                return "Answer recorded. The seeker will be notified and can access your response through your avatar."
             else:
                 return "There was an issue recording the answer. Please try again."
         
         elif action == "approve":
             success = message_service.update_message_status(
                 message_id=message_id,
-                status="intro_sent"
+                status="intro_approved"
             )
             if success:
                 logger.info(f"Approved introduction for message {message_id}")
-                return "Introduction approved. An email will be sent to connect you with the student."
+                return "Introduction approved. An email will be sent to connect you with the seeker."
             else:
                 return "There was an issue approving the introduction. Please try again."
         
