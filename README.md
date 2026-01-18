@@ -1,484 +1,478 @@
-# Expert Avatar Interview
+# Expert Avatar Interview Agent
 
-A multi-agent voice AI interview platform built with LiveKit Agents, Next.js, and Supabase. Users authenticate via LinkedIn OAuth and interact with AI-powered avatar agents for conversational interviews.
+A voice AI platform that enables experts to create interactive AI avatars of themselves. Experts conduct voice interviews to capture their knowledge, which is then transformed into a shareable avatar that seekers can chat with to learn from their expertise.
 
-## Architecture
+## Overview
 
-This project consists of three main components:
+Expert Avatar consists of three main components:
 
-1. **Frontend (`expertavatar-interview-frontend/`)** - Next.js app with LiveKit integration and Supabase authentication
-2. **Agent (`expertavatar-interview-agent/`)** - Python-based LiveKit voice agent with avatar support
-3. **Backend (`expert-avatar-backend/`)** - Flask API server for additional backend operations
+- **Next.js Frontend** - Dashboard for managing sessions, viewing avatars, and initiating calls
+- **Flask Backend** - API and background worker for processing calls and generating avatars
+- **LiveKit Agents** - Real-time voice AI agents that conduct interviews and power avatar chats
 
-```
-┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   Frontend  │────────▶│   Supabase  │         │  LiveKit    │
-│   Next.js   │         │   Auth +    │         │   Cloud     │
-│             │◀────────│   Storage   │         │             │
-└──────┬──────┘         └─────────────┘         └──────┬──────┘
-       │                                                 │
-       │                                                 │
-       │                ┌─────────────┐                 │
-       └───────────────▶│   Agent     │◀────────────────┘
-                        │   Python    │
-                        └─────────────┘
-```
+## System Architecture
 
-## Prerequisites
-
-Before setting up this project, ensure you have:
-
-- **Node.js** (v18+) and **pnpm** installed
-- **Python** 3.13+ and **uv** package manager (`pip install uv`)
-- **LiveKit Cloud** account ([livekit.io](https://livekit.io))
-- **Supabase** account ([supabase.com](https://supabase.com))
-- **LinkedIn Developer** account for OAuth setup
-- **OpenAI API** key (for GPT-4.1)
-- **Hedra API** key (for avatar sessions)
-- **Cartesia API** key (for TTS)
-- **AssemblyAI API** key (for STT)
-
-## Supabase Setup
-
-### 1. Create a Supabase Project
-
-1. Go to [supabase.com](https://supabase.com) and create a new project
-2. Note down your:
-   - **Project URL** (found in Settings → API)
-   - **Anon/Public Key** (found in Settings → API)
-   - **Service Role Key** (found in Settings → API - keep this secret!)
-
-### 2. Configure LinkedIn OAuth
-
-#### Step 1: Create LinkedIn OAuth App
-
-1. Go to [LinkedIn Developers](https://www.linkedin.com/developers/apps)
-2. Click **Create app**
-3. Fill in the required information:
-   - **App name**: Expert Avatar Interview (or your preferred name)
-   - **LinkedIn Page**: Your company page
-   - **Privacy policy URL**: Your privacy policy
-   - **App logo**: Upload a logo (optional)
-4. Click **Create app**
-5. Navigate to the **Auth** tab
-6. Note your **Client ID** and **Client Secret**
-
-#### Step 2: Configure OAuth Redirect URLs
-
-In your LinkedIn app's **Auth** tab, add the following **Authorized redirect URLs**:
-
-```
-https://YOUR_SUPABASE_PROJECT_ID.supabase.co/auth/v1/callback
-```
-
-For local development, also add:
-
-```
-http://localhost:54321/auth/v1/callback
+```mermaid
+flowchart TB
+    subgraph frontend [Next.js Frontend]
+        Dashboard[Dashboard]
+        SessionView[Session View]
+        WelcomeScreen[Welcome Screen]
+    end
+    
+    subgraph livekit [LiveKit Cloud]
+        direction TB
+        Room[Room Service]
+        InterviewAgent[Interview Agent]
+        ChatAgent[Chat Agent]
+        HedraAvatar[Hedra Avatar]
+        STT[AssemblyAI STT]
+        TTS[Inworld TTS]
+        LLM[OpenAI GPT-4.1]
+    end
+    
+    subgraph backend [Flask Backend]
+        API[Flask API Server]
+        Worker[Background Worker]
+    end
+    
+    subgraph external [External Services]
+        Anthropic[Anthropic Claude]
+        HedraAPI[Hedra API]
+        Inworld[Inworld Voice]
+        Resend[Resend Email]
+    end
+    
+    subgraph supabase [Supabase]
+        DB[(PostgreSQL)]
+        Storage[(Object Storage)]
+        Auth[Auth]
+    end
+    
+    Dashboard --> Room
+    SessionView --> Room
+    Room --> InterviewAgent
+    Room --> ChatAgent
+    InterviewAgent --> HedraAvatar
+    ChatAgent --> HedraAvatar
+    InterviewAgent --> STT
+    InterviewAgent --> TTS
+    InterviewAgent --> LLM
+    
+    InterviewAgent --> API
+    ChatAgent --> API
+    API --> Worker
+    Worker --> Anthropic
+    Worker --> HedraAPI
+    Worker --> Inworld
+    Worker --> Resend
+    Worker --> DB
+    Worker --> Storage
+    
+    Dashboard --> Auth
+    Dashboard --> DB
 ```
 
-**Important**: Replace `YOUR_SUPABASE_PROJECT_ID` with your actual Supabase project reference ID (found in your project settings).
+## Agent Architecture
 
-#### Step 3: Request OAuth Scopes
+The interview agent uses a multi-agent handoff pattern to handle different conversation phases efficiently. This minimizes latency by keeping each agent's context focused.
 
-In the **Products** tab of your LinkedIn app:
-1. Click **Request access** for "Sign In with LinkedIn using OpenID Connect"
-2. This will give you access to the following scopes:
-   - `openid`
-   - `profile`
-   - `email`
-
-#### Step 4: Configure LinkedIn Provider in Supabase
-
-1. In your Supabase project dashboard, go to **Authentication** → **Providers**
-2. Scroll down and find **LinkedIn**
-3. Enable the LinkedIn provider
-4. Enter your LinkedIn app credentials:
-   - **Client ID**: From your LinkedIn app
-   - **Client Secret**: From your LinkedIn app
-5. **Callback URL** should auto-populate (it should match what you configured in LinkedIn)
-6. Click **Save**
-
-#### Step 5: Update Allowed Redirect URLs (Frontend)
-
-In Supabase, go to **Authentication** → **URL Configuration**:
-
-1. Add your frontend URL to **Site URL**:
-   ```
-   http://localhost:3000
-   ```
-
-2. Add to **Redirect URLs**:
-   ```
-   http://localhost:3000/**
-   http://localhost:3000/auth/callback
-   ```
-
-For production, add your production domain:
-   ```
-   https://yourdomain.com
-   https://yourdomain.com/**
-   https://yourdomain.com/auth/callback
-   ```
-
-### 3. Configure Database Tables
-
-#### Create the `calls` Table
-
-Run this SQL in the Supabase SQL Editor (**SQL Editor** → **New query**):
-
-```sql
--- Create calls table for storing conversation history
-CREATE TABLE IF NOT EXISTS public.calls (
-  id BIGSERIAL PRIMARY KEY,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
-  session_id TEXT NOT NULL,
-  job_id TEXT NOT NULL,
-  picture_id TEXT DEFAULT '',
-  user_id UUID REFERENCES auth.users(id),
-  user_firstname TEXT DEFAULT '',
-  user_lastname TEXT DEFAULT '',
-  timestamp TEXT NOT NULL,
-  usage JSONB DEFAULT '{}'::jsonb,
-  conversation JSONB DEFAULT '{}'::jsonb
-);
-
--- Create index on user_id for faster lookups
-CREATE INDEX IF NOT EXISTS idx_calls_user_id ON public.calls(user_id);
-
--- Create index on session_id
-CREATE INDEX IF NOT EXISTS idx_calls_session_id ON public.calls(session_id);
-
--- Create index on created_at for sorting
-CREATE INDEX IF NOT EXISTS idx_calls_created_at ON public.calls(created_at DESC);
-
--- Enable Row Level Security
-ALTER TABLE public.calls ENABLE ROW LEVEL SECURITY;
-
--- Create policy: Users can read their own calls
-CREATE POLICY "Users can view their own calls"
-  ON public.calls
-  FOR SELECT
-  USING (auth.uid() = user_id);
-
--- Create policy: Service role can insert (agent uses service key)
-CREATE POLICY "Service role can insert calls"
-  ON public.calls
-  FOR INSERT
-  WITH CHECK (true);
-
--- Grant permissions
-GRANT SELECT ON public.calls TO authenticated;
-GRANT INSERT ON public.calls TO service_role;
+```mermaid
+flowchart LR
+    subgraph agents [Interview Agent Service]
+        direction TB
+        Entrypoint[Entrypoint]
+        Onboarding[OnboardingAgent]
+        Interview[InterviewAgent]
+        Mail[MailAgent]
+    end
+    
+    Entrypoint -->|new user| Onboarding
+    Entrypoint -->|returning user| Interview
+    Entrypoint -->|resume session| Interview
+    Interview -->|check messages| Mail
+    Mail -->|continue interview| Interview
 ```
 
-#### Create Storage Bucket for Avatar Images
+| Agent | Purpose |
+|-------|---------|
+| **OnboardingAgent** | Conducts initial interview with new experts to capture their expertise, background, and unique perspectives |
+| **InterviewAgent** | Handles returning users for deeper interviews, with personalized prompts based on their profile |
+| **MailAgent** | Presents pending messages from seekers and handles responses (answer questions, approve/decline intros) |
 
-Run this SQL to create the storage bucket:
+### Chat Agent (Separate Service)
 
-```sql
--- Create a storage bucket for avatar images
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('avatar-images', 'avatar-images', true)
-ON CONFLICT (id) DO NOTHING;
+The `expertavatar-chat-agent` is a separate LiveKit agent that powers seeker-facing avatar sessions. It loads the expert's profile, transcript, and cloned voice to create an interactive avatar experience.
 
--- Allow authenticated users to upload their own avatar images
-CREATE POLICY "Authenticated users can upload avatar images"
-  ON storage.objects
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (bucket_id = 'avatar-images');
-
--- Allow authenticated users to read avatar images
-CREATE POLICY "Anyone can view avatar images"
-  ON storage.objects
-  FOR SELECT
-  TO public
-  USING (bucket_id = 'avatar-images');
-
--- Allow authenticated users to update their own avatar images
-CREATE POLICY "Authenticated users can update avatar images"
-  ON storage.objects
-  FOR UPDATE
-  TO authenticated
-  USING (bucket_id = 'avatar-images')
-  WITH CHECK (bucket_id = 'avatar-images');
+```mermaid
+flowchart LR
+    Seeker[Seeker] --> ChatAgent[ChatAvatarAgent]
+    ChatAgent --> Avatar[Expert's Avatar]
+    ChatAgent --> Voice[Cloned Voice]
+    ChatAgent --> DB[(Session Data)]
 ```
 
-Alternatively, you can create the bucket manually:
-1. Go to **Storage** in the Supabase dashboard
-2. Click **New bucket**
-3. Name it `avatar-images`
-4. Set it as **Public bucket**
-5. Click **Create bucket**
+## User Flows
 
-Then configure the policies in the **Policies** tab.
+### Flow 1: New Expert Onboarding
 
-## Environment Variables
+A new expert creates their first avatar session through an onboarding interview.
 
-### Frontend (`expertavatar-interview-frontend/.env.local`)
+```mermaid
+sequenceDiagram
+    participant E as Expert
+    participant F as Frontend
+    participant L as LiveKit
+    participant A as OnboardingAgent
+    participant B as Backend API
+    participant W as Worker
+    participant S as Supabase
 
-Create a `.env.local` file in the frontend directory:
+    E->>F: Start new session
+    F->>L: Create room + join
+    L->>A: Activate OnboardingAgent
+    A->>E: Greet and explain process
+    
+    loop Interview Objectives
+        A->>E: Ask about expertise
+        E->>A: Share knowledge
+    end
+    
+    A->>A: Call end_call tool
+    A->>L: Delete room
+    L->>S: Save transcript to interview_calls
+    L->>B: POST /post-call-orchestrator
+    B->>S: Queue post_call job
+    
+    W->>S: Claim job
+    W->>W: Process transcript with LLM
+    W->>W: Aggregate user profile
+    W->>W: Cartoonize avatar image
+    W->>W: Generate Hedra avatar
+    W->>W: Clone voice from recording
+    W->>S: Update interview_call_analysis
+    W->>S: Update user_profiles
+```
+
+**Backend Processing Tasks:**
+1. **Transcript Processing** - Extracts main topic, hot takes, key insights using Claude
+2. **Profile Aggregation** - Builds comprehensive user profile from all sessions
+3. **Image Cartoonization** - Transforms photo to editorial illustration style
+4. **Hedra Avatar Generation** - Creates animated video avatar from cartoon
+5. **Voice Cloning** - Clones expert's voice from call recording
+
+### Flow 2: Expert Resume Session (Update Content)
+
+An expert returns to add more content to an existing avatar session.
+
+```mermaid
+sequenceDiagram
+    participant E as Expert
+    participant F as Frontend
+    participant L as LiveKit
+    participant A as InterviewAgent
+    participant B as Backend API
+    participant W as Worker
+    participant S as Supabase
+
+    E->>F: Click "Resume" on session
+    F->>S: Fetch conversation summary
+    F->>L: Join room with resume metadata
+    L->>A: Activate InterviewAgent
+    Note over A: Loaded with previous context
+    A->>E: Welcome back, continue discussion
+    
+    loop Continued Interview
+        A->>E: Explore topic deeper
+        E->>A: Provide more insights
+    end
+    
+    L->>S: Save new transcript
+    L->>B: POST /resume-session-orchestrator
+    B->>S: Queue resume_session job
+    
+    W->>S: Claim job
+    W->>W: Append transcript to original
+    W->>W: Re-analyze combined transcript
+    W->>S: Update interview_call_analysis
+```
+
+### Flow 3: Expert Reviews Messages (MailAgent Handoff)
+
+An expert checks and responds to messages from seekers who chatted with their avatar.
+
+```mermaid
+sequenceDiagram
+    participant E as Expert
+    participant L as LiveKit
+    participant I as InterviewAgent
+    participant M as MailAgent
+    participant B as Backend API
+    participant W as Worker
+    participant S as Supabase
+
+    I->>S: Check pending message count
+    I->>E: You have N new messages
+    E->>I: I want to check them
+    I->>I: Call check_messages tool
+    I->>M: Handoff to MailAgent
+    
+    M->>E: Present first message
+    E->>M: Answer/Approve/Decline/Skip
+    M->>S: Update seeker_messages status
+    
+    loop More Messages
+        M->>E: Present next message
+        E->>M: Take action
+        M->>S: Update status
+    end
+    
+    alt Continue Interview
+        M->>I: Handoff back to InterviewAgent
+    else End Session
+        M->>B: POST /mail-session-orchestrator
+        B->>S: Queue mail_session job
+        W->>W: Send answer emails to seekers
+        W->>W: Send intro emails for approved intros
+    end
+```
+
+### Flow 4: Seeker Chats with Expert Avatar
+
+A seeker interacts with an expert's shareable avatar to learn from their expertise.
+
+```mermaid
+sequenceDiagram
+    participant Se as Seeker
+    participant F as Frontend
+    participant L as LiveKit
+    participant C as ChatAvatarAgent
+    participant H as Hedra Avatar
+    participant B as Backend API
+    participant W as Worker
+    participant S as Supabase
+
+    Se->>F: Open share link
+    F->>S: Fetch session data
+    F->>L: Join chat room
+    L->>C: Activate ChatAvatarAgent
+    C->>S: Load expert profile + transcript
+    C->>H: Start expert's Hedra avatar
+    Note over C: Uses expert's cloned voice
+    
+    C->>Se: Greet as expert persona
+    
+    loop Conversation
+        Se->>C: Ask question
+        C->>Se: Respond as expert
+    end
+    
+    alt Seeker wants to contact real expert
+        Se->>C: Ask to leave question
+        C->>C: Call create_message tool
+        C->>S: Insert to seeker_messages
+        C->>Se: I'll pass that to the real expert
+    end
+    
+    L->>S: Save chat transcript
+    L->>B: POST /chat-session-orchestrator
+    B->>S: Queue message_notification job
+    W->>W: Email expert about new messages
+```
+
+### Flow 5: Dashboard Settings
+
+Users manage their account settings from the dashboard.
+
+```mermaid
+flowchart TB
+    subgraph dashboard [Dashboard Actions]
+        Email[Update Email Settings]
+        Voice[Re-clone Voice]
+        Avatar[Update Avatar Image]
+    end
+    
+    subgraph email_flow [Email Settings]
+        Email --> DB1[(user_profiles)]
+    end
+    
+    subgraph voice_flow [Voice Re-clone]
+        Voice --> Recorder[Voice Recorder Component]
+        Recorder --> API1[POST /reclone-voice]
+        API1 --> Job1[voice_reclone job]
+        Job1 --> Inworld[Inworld Voice Clone]
+        Inworld --> DB2[(user_profiles.voice_id)]
+    end
+    
+    subgraph avatar_flow [Avatar Update]
+        Avatar --> Upload[Upload New Image]
+        Upload --> Storage[(avatar-images-bucket)]
+        Upload --> API2[POST /update-session-avatar]
+        API2 --> Job2[avatar_update job]
+        Job2 --> Cartoon[Cartoonize Image]
+        Cartoon --> Hedra[Generate Hedra Avatar]
+        Hedra --> DB3[(interview_call_analysis)]
+    end
+```
+
+### Flow 6: Video Generation and Sharing
+
+Experts generate shareable videos and avatar session links from the dashboard.
+
+```mermaid
+flowchart TB
+    subgraph generation [Content Generation]
+        HotTake[Generate Hot Take Video]
+        ShareLink[Create Share Link]
+    end
+    
+    subgraph hottake_flow [Hot Take Video]
+        HotTake --> Edit[Edit hot take text]
+        Edit --> API1[POST /generate-hot-take-video]
+        API1 --> Job1[hot_take job]
+        Job1 --> TTS[Generate audio with cloned voice]
+        TTS --> Hedra[Render with Hedra avatar]
+        Hedra --> Captions[Add captions]
+        Captions --> Storage[(hot-take-videos bucket)]
+    end
+    
+    subgraph share_flow [Share Link]
+        ShareLink --> Token[Generate share token]
+        Token --> DB[(share_links table)]
+        DB --> URL[Shareable URL]
+        URL --> Seeker[Seeker accesses avatar]
+    end
+```
+
+## Backend Job Queue
+
+The backend uses a Supabase-based job queue with a polling worker for async processing.
+
+```mermaid
+flowchart LR
+    subgraph api [Flask API]
+        Endpoint[Orchestrator Endpoints]
+    end
+    
+    subgraph queue [Job Queue]
+        Table[(post_call_jobs)]
+    end
+    
+    subgraph worker [Background Worker]
+        Poller[Job Poller]
+        Processor[Job Processor]
+    end
+    
+    Endpoint -->|INSERT job| Table
+    Poller -->|claim_pending_job| Table
+    Table -->|job data| Processor
+    Processor -->|UPDATE status| Table
+```
+
+**Job Types:**
+
+| Job Type | Description |
+|----------|-------------|
+| `post_call` | Full post-call processing (transcript, profile, avatar, voice) |
+| `resume_session` | Append new conversation to existing session |
+| `mail_session` | Process answered questions and approved intros |
+| `message_notification` | Notify experts about new seeker messages |
+| `hot_take` | Generate hot take video with avatar |
+| `avatar_update` | Re-cartoonize and regenerate Hedra avatar |
+| `voice_reclone` | Clone voice from new audio recording |
+
+## Key Services
+
+| Service | Location | Purpose |
+|---------|----------|---------|
+| `TranscriptProcessor` | `expert-avatar-backend/services/` | LLM analysis of call transcripts |
+| `ProfileAggregator` | `expert-avatar-backend/services/` | Builds comprehensive user profiles |
+| `VoiceCloningService` | `expert-avatar-backend/services/` | Clones voices via Inworld/Cartesia |
+| `HedraAvatarGenerator` | `expert-avatar-backend/services/` | Creates video avatars via Hedra API |
+| `CartoonGenerator` | `expert-avatar-backend/services/` | Transforms photos to illustrations |
+| `EmailService` | `expert-avatar-backend/services/` | Sends notification emails via Resend |
+| `MessageOrchestrator` | `expert-avatar-backend/services/` | Routes Q&A and intro requests |
+
+## Development Setup
+
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://github.com/astral-sh/uv) package manager
+- LiveKit Cloud account
+- Supabase project
+
+### Environment Variables
+
+Create a `.env.local` file with:
 
 ```bash
+# LiveKit
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+LIVEKIT_URL=
+
 # Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_URL=
+SUPABASE_SERVICE_KEY=
+SUPABASE_S3_ACCESS_KEY_ID=
+SUPABASE_S3_SECRET_ACCESS_KEY=
 
-# LiveKit
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=your_livekit_api_key
-LIVEKIT_API_SECRET=your_livekit_api_secret
+# AI Services
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 
-# Agent Configuration
-NEXT_PUBLIC_DEFAULT_AGENT_NAME=your-agent-name
+# Avatar & Voice
+HEDRA_API_KEY=
+INWORLD_API_KEY=
+INWORLD_WORKSPACE_ID=
+
+# Backend
+BACKEND_URL=http://localhost:5001
+BACKEND_API_KEY=
 ```
 
-### Agent (`expertavatar-interview-agent/.env.local`)
-
-Create a `.env.local` file in the agent directory:
+### Running Locally
 
 ```bash
-# LiveKit
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=your_livekit_api_key
-LIVEKIT_API_SECRET=your_livekit_api_secret
-
-# Supabase (for storing conversation history)
-SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
-SUPABASE_SERVICE_KEY=your_supabase_service_role_key
-
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
-
-# Hedra (for avatar)
-HEDRA_API_KEY=your_hedra_api_key
-
-# Cartesia (for TTS)
-CARTESIA_API_KEY=your_cartesia_api_key
-
-# AssemblyAI (for STT)
-ASSEMBLYAI_API_KEY=your_assemblyai_api_key
-```
-
-### Backend (`expert-avatar-backend/.env.local`)
-
-Create a `.env.local` file in the backend directory:
-
-```bash
-# Server Configuration
-PORT=5001
-
-# Add any additional backend-specific environment variables here
-```
-
-## Installation
-
-### 1. Install Frontend Dependencies
-
-```bash
-cd expertavatar-interview-frontend
-pnpm install
-```
-
-### 2. Install Agent Dependencies
-
-```bash
-cd ../expertavatar-interview-agent
+# Install dependencies
 uv sync
-```
 
-### 3. Install Backend Dependencies
-
-```bash
-cd ../expert-avatar-backend
-uv sync
-```
-
-## Running the Application
-
-You'll need three terminal windows to run all components:
-
-### Terminal 1: Frontend
-
-```bash
-cd expertavatar-interview-frontend
-pnpm dev
-```
-
-The frontend will be available at [http://localhost:3000](http://localhost:3000)
-
-### Terminal 2: Agent
-
-```bash
-cd expertavatar-interview-agent
+# Run the interview agent
 uv run python agent.py dev
+
+# In another terminal, run the backend
+cd ../expert-avatar-backend
+uv run python app.py
+
+# Run the worker
+uv run python worker.py
 ```
 
-The agent will connect to LiveKit and wait for participant connections.
-
-### Terminal 3: Backend (Optional)
+### Running Tests
 
 ```bash
-cd expert-avatar-backend
-uv run python app.py
-```
-
-The backend will be available at [http://localhost:5001](http://localhost:5001)
-
-## Testing the Setup
-
-### 1. Verify Supabase Authentication
-
-1. Open [http://localhost:3000](http://localhost:3000)
-2. Click **Sign in with LinkedIn**
-3. Complete the OAuth flow
-4. You should be redirected back to the app and see your profile information
-
-### 2. Test Voice Agent Connection
-
-1. After logging in, the dashboard should load
-2. Click to start a conversation with the agent
-3. Grant microphone permissions when prompted
-4. You should see the avatar and be able to have a conversation
-
-### 3. Verify Data Storage
-
-1. After a conversation, check the Supabase dashboard
-2. Go to **Table Editor** → **calls**
-3. You should see a new row with your conversation data
-4. Verify that `user_id`, `user_firstname`, and `user_lastname` are populated
-
-### 4. Check Local Logs
-
-In the agent terminal, you should see logs like:
-
-```
-==================================================
-👤 USER CONNECTED TO AGENT
-==================================================
-User ID: abc123-def456-ghi789
-Name: John Doe
-First Name: John
-Last Name: Doe
-Email: john@example.com
-==================================================
+uv run pytest
 ```
 
 ## Project Structure
 
 ```
-expertavatar-interview/
-├── README.md                           # This file
-├── USER_DATA_FLOW.md                   # Documentation on user data flow
-├── AGENTS.md                           # LiveKit Agents development guide
-│
-├── expertavatar-interview-frontend/    # Next.js Frontend
-│   ├── app/                           # Next.js app directory
-│   │   ├── api/                      # API routes
-│   │   │   └── connection-details/   # LiveKit connection token generation
-│   │   ├── (app)/                    # Main app pages
-│   │   ├── auth/                     # Auth callback handling
-│   │   └── login/                    # Login page
-│   ├── components/                    # React components
-│   │   ├── livekit/                  # LiveKit-specific components
-│   │   └── ui/                       # Reusable UI components
-│   ├── hooks/                         # Custom React hooks
-│   ├── lib/                           # Utilities
-│   │   ├── supabase.ts               # Supabase client
-│   │   └── types.ts                  # TypeScript types
-│   └── .env.local                     # Environment variables (create this)
-│
-├── expertavatar-interview-agent/       # Python Agent
-│   ├── agent.py                       # Main agent entry point
-│   ├── agents/                        # LiveKit Agents SDK (submodule)
-│   ├── prompts/                       # System prompts
-│   │   ├── onboarding_prompt.txt     # Main agent instructions
-│   │   └── welcome_prompt.txt        # Welcome message
-│   ├── chat_history/                  # Saved conversation logs (created automatically)
-│   ├── utils.py                       # Utility functions
-│   ├── pyproject.toml                 # Python dependencies
-│   └── .env.local                     # Environment variables (create this)
-│
-└── expert-avatar-backend/              # Flask Backend
-    ├── app.py                         # Main Flask application
-    ├── pyproject.toml                 # Python dependencies
-    └── .env.local                     # Environment variables (create this)
+expertavatar-interview-agent/
+├── agent.py                 # Main agent entrypoint
+├── prompts/
+│   ├── interview_prompt.txt # Interview agent instructions
+│   ├── mail_prompt.txt      # Mail agent instructions
+│   └── onboarding_prompt.txt # Onboarding agent instructions
+├── services/
+│   ├── gender_detection.py  # Name-based gender detection for avatar selection
+│   ├── message_data.py      # Seeker message data access
+│   └── user_data.py         # User profile data access
+└── utils.py                 # Prompt loading utilities
 ```
 
-## Development Tips
+## Related Projects
 
-### Formatting and Linting
-
-**Frontend:**
-```bash
-cd expertavatar-interview-frontend
-pnpm format          # Format with Prettier
-pnpm lint            # Lint with ESLint
-```
-
-**Agent:**
-```bash
-cd expertavatar-interview-agent
-uv run ruff format   # Format Python code
-uv run ruff check    # Lint Python code
-```
-
-### Testing the Agent
-
-```bash
-cd expertavatar-interview-agent
-uv run pytest        # Run agent tests
-```
-
-### Viewing Logs
-
-- **Frontend**: Check browser console and terminal
-- **Agent**: All logs appear in the terminal where you ran `agent.py`
-- **Backend**: Check the terminal where you ran `app.py`
-
-### Common Issues
-
-#### LinkedIn OAuth Not Working
-
-- Verify that your redirect URLs in LinkedIn match exactly with Supabase
-- Check that you have the correct Client ID and Secret in Supabase
-- Ensure "Sign In with LinkedIn using OpenID Connect" is approved
-
-#### Agent Not Receiving User Data
-
-- Check that the `Authorization` header is being sent from frontend
-- Verify Supabase session is active (check browser console)
-- Look for authentication errors in the agent terminal
-
-#### Database Insert Failing
-
-- Verify that your `SUPABASE_SERVICE_KEY` is correct (not the anon key)
-- Check that the `calls` table exists and has the correct schema
-- Review RLS policies to ensure service role can insert
-
-#### Avatar Images Not Uploading
-
-- Verify the `avatar-images` bucket exists in Supabase Storage
-- Check that the bucket is set to **public**
-- Review storage policies to ensure authenticated users can upload
-
-## LiveKit Agents Documentation
-
-For more information about building with LiveKit Agents, you can use the LiveKit Documentation MCP server:
-
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/en-US/install-mcp?name=livekit-docs&config=eyJ1cmwiOiJodHRwczovL2RvY3MubGl2ZWtpdC5pby9tY3AifQ%3D%3D)
-
-Or visit the [LiveKit Agents documentation](https://docs.livekit.io/agents/).
-
-## Resources
-
-- [LiveKit Documentation](https://docs.livekit.io/)
-- [Supabase Documentation](https://supabase.com/docs)
-- [Next.js Documentation](https://nextjs.org/docs)
-- [LinkedIn OAuth Documentation](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication)
-
-## License
-
-See individual component licenses in their respective directories.
-
+- `expertavatar-interview-frontend/` - Next.js dashboard and session UI
+- `expertavatar-chat-agent/` - Seeker-facing avatar chat agent
+- `expert-avatar-backend/` - Flask API and background worker
