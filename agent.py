@@ -457,7 +457,36 @@ class MailAgent(Agent):
         Complete the mail review session and end the call.
         Use this when the expert is done reviewing messages and wants to end the session.
         """
-        logger.info("Mail review completed - ending session")
+        logger.info("Mail review completed - triggering mail session orchestrator")
+        
+        # Trigger mail session orchestrator to process answered questions and approved intros
+        if self.original_session_id and self.job_context:
+            try:
+                import aiohttp
+                room_sid = await self.job_context.room.sid
+                
+                headers = {}
+                backend_api_key = os.getenv("BACKEND_API_KEY")
+                if backend_api_key:
+                    headers["X-API-Key"] = backend_api_key
+                
+                async with aiohttp.ClientSession() as http_session:
+                    async with http_session.post(
+                        f"{BACKEND_URL}/mail-session-orchestrator",
+                        json={
+                            "session_id": room_sid,
+                            "original_session_id": self.original_session_id
+                        },
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
+                        if response.status in (200, 202):
+                            logger.info(f"✅ Mail session orchestrator triggered for {self.original_session_id}")
+                        else:
+                            logger.warning(f"⚠️ Mail session orchestrator returned status {response.status}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not trigger mail session orchestrator: {e}")
+        
         return "Thank you for reviewing your messages. Goodbye!"
 
 
