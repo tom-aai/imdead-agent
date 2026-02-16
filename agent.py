@@ -145,34 +145,30 @@ class OnboardingAgent(Agent):
 
     @function_tool
     async def end_call(self, context: RunContext):
-        """End the onboarding call. Use this tool when you have completed all 5 onboarding 
-        objectives and said goodbye to the user. This will gracefully end the call and 
-        clean up the session.
-        
-        IMPORTANT: Before calling this tool, you MUST:
-        1. Have covered all 5 onboarding objectives (expertise, background, common mistakes, what they're building, problem they're solving)
-        2. Thank the user for the conversation
-        3. Tell them their expert avatar will be created from this onboarding
-        4. Say goodbye
-        
-        Only call this tool AFTER you have said your final goodbye message to the user.
+        """End the onboarding call. Call this tool when you have completed all 5 onboarding 
+        objectives. The LLM should say goodbye in its response before calling this tool.
         """
         if not self.job_context:
             logger.error("No job context available for end_call")
             return None, "Failed to end call: No job context available"
-        
+
         room_name = self.job_context.room.name
-        logger.info(f"Ending onboarding call - deleting room {room_name}")
-        
+        logger.info(f"Ending onboarding call - waiting for playout before closing room {room_name}")
+
+        # Wait for the LLM's farewell message to finish playing
+        await context.wait_for_playout()
+
+        logger.info("Farewell spoken, deleting room")
+
+        # Delete the room — this triggers participant disconnect, which auto-closes
+        # the session and fires shutdown callbacks (save_chat_history, etc.)
         try:
             await self.job_context.api.room.delete_room(
                 api.DeleteRoomRequest(room=room_name)
             )
             logger.info(f"Successfully ended call and deleted room {room_name}")
-            return None, "Call ended successfully."
         except Exception as e:
-            logger.error(f"Error ending call: {e}")
-            return None, f"Failed to end call: {e}"
+            logger.error(f"Error deleting room: {e}")
 
 class InterviewAgent(Agent):
     """Agent for returning users going through interviews."""
@@ -556,12 +552,12 @@ async def entrypoint(ctx: agents.JobContext):
     # If male -> use Ashley (female avatar/voice)
     # If female -> use Phil (male avatar/voice)
     if detected_gender == "male":
-        avatar_id = "af7b8de9-a7ae-48c4-86ab-6affd3485727"  # Ashley
+        avatar_id = "bcd98623-d8ae-4078-93e4-89f2704e3e41"  # Ashley
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
         agent_name = "Ashley"
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
-        avatar_id = "f9ee171e-c671-439a-95d3-a0bc1e320c27"  # Phil
+        avatar_id = "1e405274-e114-40f4-9cab-2f0a146df96d"  # Phil
         tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         agent_name = "Phil"
@@ -608,6 +604,9 @@ async def entrypoint(ctx: agents.JobContext):
         
         # Get usage summary
         usage_summary = usage_collector.get_summary()
+        
+        # Always save and trigger backend, even if user never spoke.
+        # The backend orchestrator will detect empty transcripts and clean up appropriately.
         usage_data = {
             "llm_prompt_tokens": usage_summary.llm_prompt_tokens,
             "llm_prompt_cached_tokens": usage_summary.llm_prompt_cached_tokens,
