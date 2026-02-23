@@ -558,7 +558,7 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         avatar_id = "1e405274-e114-40f4-9cab-2f0a146df96d"  # Phil
-        tts_voice = "inworld/inworld-tts-1:Edward"  # Phil's voice
+        tts_voice = "inworld/inworld-tts-1:Evan"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         agent_name = "Phil"
         logger.info(f"Female name detected - using Phil avatar and male voice")
