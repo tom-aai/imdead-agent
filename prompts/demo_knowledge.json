@@ -1,0 +1,51 @@
+{
+  "name": "Expert Avatar",
+  "tagline": "Turn your expertise into a shareable interactive AI avatar",
+
+  "what_it_is": "Expert Avatar lets experts—consultants, coaches, founders, researchers, creators—create an interactive AI version of themselves. The avatar captures how they think, what they know, and how they speak. Anyone can then have a real conversation with it to learn from their expertise.",
+
+  "how_it_works": [
+    "The expert does a voice interview with an AI agent. The agent asks questions to draw out their background, expertise, personality, perspectives, and the problems they solve.",
+    "After the call, Expert Avatar processes the transcript to extract insights and a profile of how the expert thinks. Expert Avatar also clones the expert's voice, generates an interactive multimodal avatar of the expert based on the interview content, and creates a video file for the expert to share on socail media.",
+    "Anyone who opens the link to the avatar can have a live interactive voice conversation with the avatar, as if they were talking to the expert themselves. Note that we aren't training models, but instead using the transcripts interveiw as input content for the avatar's LLM.",
+    "When someone chatting with the avatar wants to connect with the real expert, they can leave a question or request an intro. The expert gets notified by email and can add their answer to the interactive avatar's content or choose to accept the introduction request."
+  ],
+
+  "value_for_experts": {
+    "reach_more_people": "Your avatar can have thousands of conversations simultaneously. You share your knowledge once and it keeps working for you—without any more of your time.",
+    "grow_your_audience": "Share your avatar link on social media, in your bio, or in your email signature. People who discover you can immediately have a deep, personalized conversation with your ideas.",
+    "generate_leads": "When someone chatting with your avatar wants to go deeper or work with you, they can request an intro. You get a warm, qualified lead who already understands your thinking.",
+    "establish_thought_leadership": "Your avatar represents your unique point of view and expertise, not just a generic FAQ. It reflects how you actually think and communicate.",
+    "scale_your_expertise": "Whether you're a consultant, coach, founder, or creator, your avatar lets you help far more people than you could one-on-one.",
+    "content_creation": "Expert Avatar can generate short videos using your avatar and cloned voice—shareable clips that represent your perspective on a topic."
+  },
+
+  "who_it_is_for": [
+    "Consultants and coaches who want to reach more potential clients",
+    "Founders and startup builders who want to share what they're building and why",
+    "Researchers and academics who want their ideas to be more accessible",
+    "Creators and educators who want to scale their impact beyond one-on-one time",
+    "Anyone with deep expertise in a field who wants to share it more broadly"
+  ],
+
+  "key_features": {
+    "voice_interview": "The onboarding experience is a natural voice conversation—no forms, no writing. You just talk about what you know.",
+    "ai_avatar": "Your avatar looks like you (in an illustrated style), sounds like you (cloned voice), and thinks like you (trained on your interview content).",
+    "shareable_link": "Every avatar session gets a unique link you can share anywhere.",
+    "seeker_messages": "People chatting with your avatar can leave questions or request an intro with you.",
+    "multiple_sessions": "You can do multiple interview sessions to add more depth, cover different topics, or update your avatar with new thinking.",
+    "voice_cloning": "Your voice is cloned from your interview recording and used to power your avatar's speech.",
+    "avatar_customization": "You can update your avatar image and re-clone your voice from the dashboard at any time."
+  },
+
+  "how_the_avatar_conversation_works": "When someone opens your share link, they're connected to a live AI avatar agent that has your profile, your interview transcript, and your cloned voice. It introduces itself as you and answers questions the way you would, based on what you shared in your interviews. If the person wants to ask you a question or contact you, the avatar can pass a message along.",
+
+  "common_questions": {
+    "how_long_is_the_interview": "A typical onboarding interview is around 3 minutes. You can always come back to add more.",
+    "what_if_i_want_to_update_my_avatar": "You can do additional content to existing sessions. You can also add new interview sessions to add new topics. You can also update your photo or re-clone your voice from the dashboard.",
+    "can_i_see_who_talked_to_my_avatar": "Yes. When someone leaves a message or requests an intro through your avatar, you're notified and can review it in your next session.",
+    "how_long_can_a_user_talk_to_my_avatar": "Sessions where users (seekers) talk to your avatar are limited to 5 minutes.",
+    "is_my_content_private": "Your avatar is only accessible to people you share the link with. Anyone with the link can start a session with your avatar, but you choose who to share the link with.",
+    "what_happens_after_my_interview": "After the call ends, Expert Avatar automatically processes your transcript, builds your profile, generates your illustrated-style avatar image, creates an animated video, clones your voice, and creates the interactive avatar. This typically takes a few minutes."
+  }
+}
