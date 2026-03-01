@@ -39,7 +39,7 @@ USER_PROFILE = UserProfileData(
 async def test_does_not_repeat_user_response_short():
     """Agent must NOT parrot back the user's statement. Should acknowledge briefly and ask a follow-up."""
     async with (
-        inference.LLM(model="openai/gpt-4.1-mini") as llm,
+        inference.LLM(model="openai/gpt-5.2-chat-latest") as llm,
         AgentSession(llm=llm, userdata=USER_PROFILE) as session,
     ):
         agent = _make_agent()
@@ -73,7 +73,7 @@ async def test_does_not_repeat_user_response_short():
 async def test_does_not_repeat_user_response_detailed():
     """Agent must not echo back a longer, more detailed user statement."""
     async with (
-        inference.LLM(model="openai/gpt-4.1-mini") as llm,
+        inference.LLM(model="openai/gpt-5.2-chat-latest") as llm,
         AgentSession(llm=llm, userdata=USER_PROFILE) as session,
     ):
         agent = _make_agent()
@@ -111,7 +111,7 @@ async def test_does_not_repeat_user_response_detailed():
 async def test_does_not_repeat_across_multiple_turns():
     """Agent must not parrot the user across a multi-turn conversation."""
     async with (
-        inference.LLM(model="openai/gpt-4.1-mini") as llm,
+        inference.LLM(model="openai/gpt-5.2-chat-latest") as llm,
         AgentSession(llm=llm, userdata=USER_PROFILE) as session,
     ):
         agent = _make_agent()
@@ -154,7 +154,7 @@ async def test_does_not_repeat_across_multiple_turns():
 async def test_no_paraphrasing_key_phrases():
     """Agent must not paraphrase or reference specific key phrases from the user's last message."""
     async with (
-        inference.LLM(model="openai/gpt-4.1-mini") as llm,
+        inference.LLM(model="openai/gpt-5.2-chat-latest") as llm,
         AgentSession(llm=llm, userdata=USER_PROFILE) as session,
     ):
         agent = _make_agent()
@@ -194,7 +194,7 @@ async def test_no_paraphrasing_key_phrases():
 async def test_no_agreement_echo_pattern():
     """Agent must not use the 'I agree, [restatement]' or 'You're right, [restatement]' pattern."""
     async with (
-        inference.LLM(model="openai/gpt-4.1-mini") as llm,
+        inference.LLM(model="openai/gpt-5.2-chat-latest") as llm,
         AgentSession(llm=llm, userdata=USER_PROFILE) as session,
     ):
         agent = _make_agent()
