@@ -31,7 +31,7 @@ async def my_agent(ctx: agents.JobContext):
     )
 
     avatar = hedra.AvatarSession(
-        avatar_id="af7b8de9-a7ae-48c4-86ab-6affd3485727",  # ID of the Hedra avatar to use. See "Avatar setup" for details.
+        avatar_id="7ad8e1ce-247c-4b70-aa15-11f44afa1ee8",  # ID of the Hedra avatar to use. See "Avatar setup" for details.
     )
 
     await avatar.start(session, room=ctx.room)
