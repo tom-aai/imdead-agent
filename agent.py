@@ -9,7 +9,7 @@ from typing import Optional
 from livekit import agents, rtc, api
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent, RunContext
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero, hedra
+from livekit.plugins import silero, hedra, lemonslice
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from supabase import create_client, Client
 
@@ -118,6 +118,28 @@ async def start_room_recording(room_name: str, user_id: str, participant_identit
     except Exception as e:
         logger.error(f"❌ Error starting participant recording: {e}")
         logger.exception("Full traceback:")
+        return None
+
+
+def get_avatar_image_url(supabase_client: Client, storage_path: str, expires_in: int = 3600) -> Optional[str]:
+    """
+    Generate a signed URL for an avatar image in Supabase storage.
+    """
+    if not supabase_client or not storage_path:
+        return None
+
+    try:
+        response = supabase_client.storage.from_("avatar-images-bucket").create_signed_url(
+            storage_path, expires_in
+        )
+        signed_url = response.get("signedURL") or response.get("signedUrl")
+        if signed_url:
+            logger.info(f"Generated signed URL for avatar image: {storage_path}")
+            return signed_url
+        logger.warning(f"No signed URL in response for {storage_path}: {response}")
+        return None
+    except Exception as e:
+        logger.error(f"Error generating signed URL for {storage_path}: {e}")
         return None
 
 
@@ -552,16 +574,22 @@ async def entrypoint(ctx: agents.JobContext):
     # If male -> use Ashley (female avatar/voice)
     # If female -> use Phil (male avatar/voice)
     if detected_gender == "male":
-        avatar_id = "7ad8e1ce-247c-4b70-aa15-11f44afa1ee8"  # Ashley
+        avatar_storage_path = "54cf5a0f-b8c0-4fa8-a328-144657bb8ed4/246741d4-34a8-4c78-94e1-13f3ceded243.png"  # Ashley
         tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
         agent_name = "Ashley"
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
-        avatar_id = "1e405274-e114-40f4-9cab-2f0a146df96d"  # Phil
+        avatar_storage_path = "54cf5a0f-b8c0-4fa8-a328-144657bb8ed4/phil2.png"  # Phil
         tts_voice = "inworld/inworld-tts-1:Evan"  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         agent_name = "Phil"
         logger.info(f"Female name detected - using Phil avatar and male voice")
+
+    # Generate a signed URL for the selected avatar image
+    avatar_image_url = get_avatar_image_url(supabase, avatar_storage_path)
+    if not avatar_image_url:
+        logger.error(f"Could not generate signed URL for avatar image: {avatar_storage_path}")
+        return
     
     # Select the appropriate agent based on user status
     # Use a dict so it can be mutated by agents during transfers
@@ -661,8 +689,9 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info("⏭️ Skipping voice recording for resume session")
 
     # Start avatar
-    avatar = hedra.AvatarSession(
-        avatar_id=avatar_id
+    avatar = lemonslice.AvatarSession(
+        agent_image_url=avatar_image_url,
+        agent_prompt="Be expressive in your movements and use your hands while talking.",
     )
     await avatar.start(session, room=ctx.room)
 
