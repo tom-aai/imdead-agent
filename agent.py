@@ -665,7 +665,7 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession(
         userdata=user_profile,
         stt="assemblyai/universal-streaming:en",
-        llm="openai/gpt-5.2-chat-latest",
+        llm="google/gemma-4-31b-it",
         tts=tts_voice,  # Dynamically selected based on user's gender
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
