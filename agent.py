@@ -315,7 +315,11 @@ class InterviewAgent(Agent):
             return "You don't have any pending messages from seekers right now."
         
         # Hand off to MailAgent by returning the new agent
-        # The framework automatically handles the handoff when an Agent is returned
+        # The framework automatically handles the handoff when an Agent is returned.
+        # IMPORTANT: return the agent ALONE, never a (agent, str) tuple. A tuple makes
+        # this agent generate a spoken reply to the tool output before the handoff
+        # lands - and it has no message data, so it fabricates one. MailAgent.on_enter()
+        # is the only thing that should announce messages.
         mail_agent = MailAgent(
             job_context=self.job_context,
             agent_name=self.agent_name,
@@ -326,7 +330,7 @@ class InterviewAgent(Agent):
             chat_ctx=self.chat_ctx  # Preserve chat context
         )
         
-        return mail_agent, f"Transferring to check {len(messages)} messages."
+        return mail_agent
 
 
 class MailAgent(Agent):
