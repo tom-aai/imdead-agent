@@ -485,7 +485,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "anthropic" },
     { name = "audioop-lts" },
-    { name = "livekit-agents", extra = ["google", "hedra", "images", "lemonslice", "silero", "turn-detector"] },
+    { name = "livekit-agents", extra = ["google", "hedra", "images", "inworld", "lemonslice", "silero", "turn-detector"] },
     { name = "livekit-plugins-noise-cancellation" },
     { name = "pydub" },
     { name = "python-dotenv" },
@@ -503,7 +503,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.10.0" },
     { name = "anthropic", specifier = ">=0.43.0" },
     { name = "audioop-lts", specifier = ">=0.2.1" },
-    { name = "livekit-agents", extras = ["google", "hedra", "images", "lemonslice", "silero", "turn-detector"], specifier = ">=1.5.1" },
+    { name = "livekit-agents", extras = ["google", "hedra", "images", "inworld", "lemonslice", "silero", "turn-detector"], specifier = ">=1.5.1" },
     { name = "livekit-plugins-noise-cancellation", specifier = "~=0.2" },
     { name = "pydub", specifier = ">=0.25.1" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
@@ -1060,6 +1060,9 @@ hedra = [
 images = [
     { name = "pillow" },
 ]
+inworld = [
+    { name = "livekit-plugins-inworld" },
+]
 lemonslice = [
     { name = "livekit-plugins-lemonslice" },
 ]
@@ -1134,6 +1137,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8b/83/f715b1c4d32cfe74eaea19cddf15911db931944c357b51f856cd135e1a7f/livekit_plugins_hedra-1.5.4.tar.gz", hash = "sha256:7403f78a650a6a73dbea65229c73f9516a8a495d961536f9d05a9e15a4b4d65a", size = 3596, upload-time = "2026-04-16T04:51:37.212Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b6/34/9152677d5beea572946bf6c7da56343953feeb6f7e2667f27e2a9e63ee6f/livekit_plugins_hedra-1.5.4-py3-none-any.whl", hash = "sha256:d4fce1ef4e42e292abc7037c4e24630b027d7e22fc9b7c7c28c37b6b4b8bd14c", size = 3606, upload-time = "2026-04-16T04:51:36.006Z" },
+]
+
+[[package]]
+name = "livekit-plugins-inworld"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/0f/d0b472826a52aa929538a35102fc4756153196b12f6ce1ad0f12771d5ac8/livekit_plugins_inworld-1.5.4.tar.gz", hash = "sha256:5f2f682a139b9e5054b2286a896dd9211ee8d57ca1efb3c9d50a0c4ead479134", size = 16152, upload-time = "2026-04-16T04:51:42.873Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/81/4b788d316bbc8601dd3fef95a4ee164092ebad14ec116145f4e57012b8e6/livekit_plugins_inworld-1.5.4-py3-none-any.whl", hash = "sha256:21060d417b7819d6960239c3e3e0fdf190b05cc929babe09e8229d438dc4bbd5", size = 16427, upload-time = "2026-04-16T04:51:41.693Z" },
 ]
 
 [[package]]

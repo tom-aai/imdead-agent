@@ -9,7 +9,7 @@ from typing import Optional
 from livekit import agents, rtc, api
 from livekit.agents import AgentSession, Agent, metrics, MetricsCollectedEvent, RunContext
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero, hedra, lemonslice
+from livekit.plugins import silero, hedra, lemonslice, inworld
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from supabase import create_client, Client
 
@@ -575,12 +575,12 @@ async def entrypoint(ctx: agents.JobContext):
     # If female -> use Phil (male avatar/voice)
     if detected_gender == "male":
         avatar_storage_path = "54cf5a0f-b8c0-4fa8-a328-144657bb8ed4/246741d4-34a8-4c78-94e1-13f3ceded243.png"  # Ashley
-        tts_voice = "inworld/inworld-tts-1:Ashley"  # Ashley's voice
+        tts_voice = inworld.TTS(model="inworld-tts-1.5-max", voice="Ashley")  # Ashley's voice
         agent_name = "Ashley"
         logger.info(f"Male name detected - using Ashley avatar and Ashley voice")
     else:  # female
         avatar_storage_path = "54cf5a0f-b8c0-4fa8-a328-144657bb8ed4/phil2.png"  # Phil
-        tts_voice = "inworld/inworld-tts-1:Evan"  # Phil's voice
+        tts_voice = inworld.TTS(model="inworld-tts-1.5-max", voice="Evan")  # Phil's voice
         #tts_voice = "cartesia/sonic-3:6d6cc6bf-a98a-4db8-bd4e-43293bb49e1b"
         agent_name = "Phil"
         logger.info(f"Female name detected - using Phil avatar and male voice")
