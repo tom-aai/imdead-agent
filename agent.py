@@ -204,6 +204,7 @@ async def entrypoint(ctx: agents.JobContext):
 
 
 if __name__ == "__main__":
-    # Normally run via `lk agent dev`, which discovers `server` above. This fallback lets
-    # `python agent.py` work too; devmode mirrors what the CLI dev command sets.
-    server.run(devmode=True)
+    # Dispatch on the CLI subcommand from argv: `start` (production worker), `dev`, or
+    # `download-files` (build step). run_app parses sys.argv, runs the event loop, and
+    # registers the worker — `server.run()` is a coroutine and must not be called bare.
+    agents.cli.run_app(server)
