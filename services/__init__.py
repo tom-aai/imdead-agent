@@ -1,11 +1,7 @@
-"""Services package for interview agent."""
+"""Services package for the I'm Dead ghost agent."""
 
-from .user_data import UserDataService, UserProfileData
-from .gender_detection import GenderDetector
+from .seed_content import build_seed_context
 
 __all__ = [
-    "UserDataService",
-    "UserProfileData",
-    "GenderDetector",
+    "build_seed_context",
 ]
-
